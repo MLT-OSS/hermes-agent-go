@@ -6,14 +6,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
 
 // CLICallbacks provides interactive callback functions for the CLI interface.
-// These are used by the agent when it needs user input (e.g., approving
-// dangerous commands, providing sudo passwords).
 type CLICallbacks struct {
 	scanner *bufio.Scanner
 	isTTY   bool
@@ -28,7 +25,6 @@ func NewCLICallbacks() *CLICallbacks {
 }
 
 // SudoPasswordCallback prompts for a sudo password securely (masked input).
-// Returns an empty string if not running in a TTY.
 func (c *CLICallbacks) SudoPasswordCallback() string {
 	if !c.isTTY {
 		return ""
@@ -42,15 +38,11 @@ func (c *CLICallbacks) SudoPasswordCallback() string {
 		return ""
 	}
 
-	fmt.Fprintln(os.Stderr) // newline after masked input
+	fmt.Fprintln(os.Stderr)
 	return string(password)
 }
 
 // ApprovalCallback shows a dangerous command and asks the user for approval.
-// Returns (approved, scope) where scope is one of:
-//   - "once"    -- approve this one command
-//   - "session" -- approve all similar commands for this session
-//   - ""        -- denied
 func (c *CLICallbacks) ApprovalCallback(command, reason string) (approved bool, scope string) {
 	if !c.isTTY {
 		return false, ""
@@ -80,8 +72,7 @@ func (c *CLICallbacks) ApprovalCallback(command, reason string) (approved bool, 
 	}
 }
 
-// ClarifyCallback presents a question with choices to the user and returns
-// the selected option. If choices is empty, it asks a free-form question.
+// ClarifyCallback presents a question with choices to the user.
 func (c *CLICallbacks) ClarifyCallback(question string, choices []string) string {
 	if !c.isTTY {
 		return ""
@@ -105,7 +96,6 @@ func (c *CLICallbacks) ClarifyCallback(question string, choices []string) string
 
 	input := strings.TrimSpace(c.scanner.Text())
 
-	// If choices were provided, try to interpret as a number.
 	if len(choices) > 0 {
 		if idx, err := strconv.Atoi(input); err == nil && idx >= 1 && idx <= len(choices) {
 			return choices[idx-1]
@@ -116,7 +106,6 @@ func (c *CLICallbacks) ClarifyCallback(question string, choices []string) string
 }
 
 // SecretCallback prompts for a secret value with masked input.
-// Used for API keys, tokens, and other sensitive values.
 func (c *CLICallbacks) SecretCallback(prompt string) string {
 	if !c.isTTY {
 		return ""
@@ -130,17 +119,17 @@ func (c *CLICallbacks) SecretCallback(prompt string) string {
 		return ""
 	}
 
-	fmt.Fprintln(os.Stderr) // newline after masked input
+	fmt.Fprintln(os.Stderr)
 	return string(secret)
 }
 
 // readPassword reads a line from stdin with echo disabled.
-// Falls back to regular reading if terminal operations fail.
+// Uses TCGETS/TCSETS which work on both Linux and macOS.
 func readPassword() ([]byte, error) {
 	fd := int(os.Stdin.Fd())
 
-	// Check if stdin is a terminal.
-	_, err := unix.IoctlGetTermios(fd, syscall.TIOCGETA)
+	// Try to get current terminal state.
+	oldState, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
 	if err != nil {
 		// Not a terminal; fall back to regular reading.
 		scanner := bufio.NewScanner(os.Stdin)
@@ -150,23 +139,21 @@ func readPassword() ([]byte, error) {
 		return nil, fmt.Errorf("no input")
 	}
 
-	// Save the current terminal state.
-	oldState, err := unix.IoctlGetTermios(fd, syscall.TIOCGETA)
-	if err != nil {
-		return nil, fmt.Errorf("get terminal state: %w", err)
-	}
-
 	// Disable echo.
 	newState := *oldState
 	newState.Lflag &^= unix.ECHO
-	if err := unix.IoctlSetTermios(fd, syscall.TIOCSETA, &newState); err != nil {
-		return nil, fmt.Errorf("disable echo: %w", err)
+	if err := unix.IoctlSetTermios(fd, ioctlSetTermios, &newState); err != nil {
+		// Fallback to plain read on error.
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			return []byte(scanner.Text()), nil
+		}
+		return nil, fmt.Errorf("no input")
 	}
 
 	// Restore terminal state when done.
-	defer unix.IoctlSetTermios(fd, syscall.TIOCSETA, oldState)
+	defer unix.IoctlSetTermios(fd, ioctlSetTermios, oldState)
 
-	// Read the password line.
 	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
 		return []byte(scanner.Text()), nil
