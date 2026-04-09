@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/hermes-agent/hermes-agent-go/internal/acp"
 	"github.com/hermes-agent/hermes-agent-go/internal/agent"
 	"github.com/hermes-agent/hermes-agent-go/internal/batch"
 	"github.com/hermes-agent/hermes-agent-go/internal/cli"
@@ -401,12 +405,29 @@ func runGateway() error {
 		return fmt.Errorf("start gateway: %w", err)
 	}
 
+	// Start ACP server if configured.
+	if acpPortStr := os.Getenv("HERMES_ACP_PORT"); acpPortStr != "" {
+		acpPort, err := strconv.Atoi(acpPortStr)
+		if err == nil && acpPort > 0 {
+			acpServer := acp.NewACPServer(acpPort)
+			go func() {
+				if err := acpServer.Start(); err != nil {
+					slog.Warn("ACP server failed", "error", err)
+				}
+			}()
+			defer acpServer.Stop()
+			slog.Info("ACP server started", "port", acpPort)
+		}
+	}
+
 	fmt.Println("Gateway running. Press Ctrl+C to stop.")
 
 	// Wait for interrupt.
 	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
+	fmt.Println("\nShutting down...")
 	runner.Stop()
 	return nil
 }

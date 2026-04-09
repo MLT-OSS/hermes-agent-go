@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/hermes-agent/hermes-agent-go/internal/config"
 	"github.com/hermes-agent/hermes-agent-go/internal/llm"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -219,7 +221,7 @@ func runSubAgent(goal, model string, cfg *config.Config) (string, error) {
 }
 
 // runSubAgentWithOptions creates an LLM client with full control over provider/credentials
-// and runs a single-turn conversation. It enforces the blocked tools list for children.
+// and runs a multi-turn agent loop with tool calling. It enforces the blocked tools list for children.
 func runSubAgentWithOptions(goal, model, provider, apiKey, baseURL string, cfg *config.Config, depth int) (string, error) {
 	var client *llm.Client
 	var err error
@@ -239,7 +241,40 @@ func runSubAgentWithOptions(goal, model, provider, apiKey, baseURL string, cfg *
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Build system prompt that warns about blocked tools
+	// Build allowed tool names (all tools minus blocked ones)
+	allNames := Registry().GetAllToolNames()
+	allowedNames := make(map[string]bool)
+	for _, name := range allNames {
+		if !blockedToolsInChildren[name] {
+			allowedNames[name] = true
+		}
+	}
+
+	// Get tool definitions in OpenAI format
+	toolDefs := Registry().GetDefinitions(allowedNames, true)
+	var tools []openai.Tool
+	for _, td := range toolDefs {
+		fnDef, ok := td["function"].(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := fnDef["name"].(string)
+		desc, _ := fnDef["description"].(string)
+		params, _ := fnDef["parameters"]
+
+		paramsJSON, _ := json.Marshal(params)
+
+		tools = append(tools, openai.Tool{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        name,
+				Description: desc,
+				Parameters:  json.RawMessage(paramsJSON),
+			},
+		})
+	}
+
+	// Build system prompt
 	var blockedList []string
 	for t := range blockedToolsInChildren {
 		blockedList = append(blockedList, t)
@@ -252,20 +287,77 @@ func runSubAgentWithOptions(goal, model, provider, apiKey, baseURL string, cfg *
 		depth, maxDelegationDepth, blockedList,
 	)
 
-	req := llm.ChatRequest{
-		Messages: []llm.Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: goal},
-		},
-		Stream: false,
+	messages := []llm.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: goal},
 	}
 
-	resp, err := client.CreateChatCompletion(ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("API call: %w", err)
+	// ReAct loop: iterate until text response or max iterations
+	const maxIterations = 5
+	for i := 0; i < maxIterations; i++ {
+		req := llm.ChatRequest{
+			Messages: messages,
+			Tools:    tools,
+			Stream:   false,
+		}
+
+		resp, err := client.CreateChatCompletion(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("API call (iteration %d): %w", i, err)
+		}
+
+		// If no tool calls, return the text response
+		if len(resp.ToolCalls) == 0 {
+			return resp.Content, nil
+		}
+
+		// Append assistant message with tool calls
+		messages = append(messages, llm.Message{
+			Role:      "assistant",
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
+		})
+
+		// Execute each tool call and append results
+		for _, tc := range resp.ToolCalls {
+			// Block forbidden tools at runtime
+			if blockedToolsInChildren[tc.Function.Name] {
+				messages = append(messages, llm.Message{
+					Role:       "tool",
+					Content:    `{"error":"tool not available for sub-agents"}`,
+					ToolCallID: tc.ID,
+				})
+				continue
+			}
+
+			var args map[string]any
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+				args = map[string]any{"raw": tc.Function.Arguments}
+			}
+
+			toolCtx := &ToolContext{
+				SessionID: fmt.Sprintf("delegate-%d", depth),
+				Platform:  "delegate",
+				Extra:     map[string]any{depthContextKey: depth},
+			}
+
+			result := Registry().Dispatch(tc.Function.Name, args, toolCtx)
+
+			// Truncate very large results
+			if len(result) > 8000 {
+				result = result[:8000] + "\n... (truncated)"
+			}
+
+			messages = append(messages, llm.Message{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: tc.ID,
+			})
+		}
 	}
 
-	return resp.Content, nil
+	// If we hit max iterations, return whatever we have
+	return "Sub-agent reached maximum iterations without a final response.", nil
 }
 
 // resolveCredentialPool looks up API credentials for a named provider

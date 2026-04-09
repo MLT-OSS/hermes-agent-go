@@ -68,6 +68,11 @@ func NewRunner(gwCfg *GatewayConfig) *Runner {
 		cancel:        cancel,
 	}
 
+	// Load allowed users from config for access control.
+	if gwCfg.AllowedUsers != nil {
+		r.pairing.LoadAllowedUsers(gwCfg.AllowedUsers)
+	}
+
 	return r
 }
 

@@ -176,8 +176,9 @@ type PlatformConfig struct {
 
 // GatewayConfig holds the full gateway configuration.
 type GatewayConfig struct {
-	Platforms map[Platform]*PlatformConfig `yaml:"platforms"`
-	Settings  GatewaySettings             `yaml:"settings"`
+	Platforms    map[Platform]*PlatformConfig `yaml:"platforms"`
+	Settings     GatewaySettings             `yaml:"settings"`
+	AllowedUsers map[string]any              `yaml:"allowed_users"`
 }
 
 // GatewaySettings holds gateway-level settings.

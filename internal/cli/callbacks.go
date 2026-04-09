@@ -6,8 +6,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
-	"golang.org/x/sys/unix"
 )
 
 // CLICallbacks provides interactive callback functions for the CLI interface.
@@ -123,40 +121,3 @@ func (c *CLICallbacks) SecretCallback(prompt string) string {
 	return string(secret)
 }
 
-// readPassword reads a line from stdin with echo disabled.
-// Uses TCGETS/TCSETS which work on both Linux and macOS.
-func readPassword() ([]byte, error) {
-	fd := int(os.Stdin.Fd())
-
-	// Try to get current terminal state.
-	oldState, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
-	if err != nil {
-		// Not a terminal; fall back to regular reading.
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
-			return []byte(scanner.Text()), nil
-		}
-		return nil, fmt.Errorf("no input")
-	}
-
-	// Disable echo.
-	newState := *oldState
-	newState.Lflag &^= unix.ECHO
-	if err := unix.IoctlSetTermios(fd, ioctlSetTermios, &newState); err != nil {
-		// Fallback to plain read on error.
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
-			return []byte(scanner.Text()), nil
-		}
-		return nil, fmt.Errorf("no input")
-	}
-
-	// Restore terminal state when done.
-	defer unix.IoctlSetTermios(fd, ioctlSetTermios, oldState)
-
-	scanner := bufio.NewScanner(os.Stdin)
-	if scanner.Scan() {
-		return []byte(scanner.Text()), nil
-	}
-	return nil, fmt.Errorf("no input")
-}
