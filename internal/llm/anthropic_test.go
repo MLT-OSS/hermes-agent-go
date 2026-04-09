@@ -460,6 +460,98 @@ func TestAnthropicClient_DefaultProvider(t *testing.T) {
 	}
 }
 
+func TestBuildAnthropicRequest_MultipleToolResults(t *testing.T) {
+	c := NewAnthropicClient("model", "https://api.anthropic.com", "key", "")
+
+	req := ChatRequest{
+		Messages: []Message{
+			{Role: "system", Content: "System."},
+			{Role: "user", Content: "Do multiple things."},
+			{
+				Role: "assistant",
+				ToolCalls: []ToolCall{
+					{ID: "tc_1", Type: "function", Function: FunctionCall{Name: "tool1", Arguments: `{"key":"val1"}`}},
+					{ID: "tc_2", Type: "function", Function: FunctionCall{Name: "tool2", Arguments: `{"key":"val2"}`}},
+				},
+			},
+			{Role: "tool", Content: "result1", ToolCallID: "tc_1"},
+			{Role: "tool", Content: "result2", ToolCallID: "tc_2"},
+		},
+	}
+
+	apiReq := c.buildAnthropicRequest(req)
+
+	// System should be extracted
+	if apiReq.System == nil {
+		t.Error("Expected system to be set")
+	}
+
+	// Should have: user, assistant(with blocks), user(with tool_results merged)
+	if len(apiReq.Messages) < 3 {
+		t.Errorf("Expected at least 3 messages, got %d", len(apiReq.Messages))
+	}
+}
+
+func TestBuildAnthropicRequest_AssistantNoToolCalls(t *testing.T) {
+	c := NewAnthropicClient("model", "https://api.anthropic.com", "key", "")
+
+	req := ChatRequest{
+		Messages: []Message{
+			{Role: "user", Content: "Hello"},
+			{Role: "assistant", Content: "Hi there!"},
+			{Role: "user", Content: "How are you?"},
+		},
+	}
+
+	apiReq := c.buildAnthropicRequest(req)
+
+	// Simple assistant message should be a string content
+	if len(apiReq.Messages) != 3 {
+		t.Errorf("Expected 3 messages, got %d", len(apiReq.Messages))
+	}
+	if apiReq.Messages[1].Role != "assistant" {
+		t.Errorf("Expected assistant role, got '%s'", apiReq.Messages[1].Role)
+	}
+}
+
+func TestBuildAnthropicRequest_AssistantWithTextAndToolUse(t *testing.T) {
+	c := NewAnthropicClient("model", "https://api.anthropic.com", "key", "")
+
+	req := ChatRequest{
+		Messages: []Message{
+			{Role: "user", Content: "Help me"},
+			{
+				Role:    "assistant",
+				Content: "Let me check.",
+				ToolCalls: []ToolCall{
+					{ID: "tc_1", Type: "function", Function: FunctionCall{Name: "search", Arguments: `{"query":"test"}`}},
+				},
+			},
+		},
+	}
+
+	apiReq := c.buildAnthropicRequest(req)
+
+	// Assistant message should have both text and tool_use blocks
+	if len(apiReq.Messages) < 2 {
+		t.Errorf("Expected at least 2 messages, got %d", len(apiReq.Messages))
+	}
+	assistantMsg := apiReq.Messages[1]
+	blocks, ok := assistantMsg.Content.([]anthropicContentBlock)
+	if !ok {
+		t.Fatal("Expected assistant content to be []anthropicContentBlock")
+	}
+	if len(blocks) != 2 {
+		t.Errorf("Expected 2 content blocks (text + tool_use), got %d", len(blocks))
+	}
+	if blocks[0].Type != "text" {
+		t.Errorf("Expected first block type 'text', got '%s'", blocks[0].Type)
+	}
+	if blocks[1].Type != "tool_use" {
+		t.Errorf("Expected second block type 'tool_use', got '%s'", blocks[1].Type)
+	}
+}
+
 func TestConvertResponse_MultipleToolCalls(t *testing.T) {
 	c := NewAnthropicClient("model", "https://api.anthropic.com", "key", "")
 
