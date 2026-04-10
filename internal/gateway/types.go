@@ -24,21 +24,7 @@ type Platform string
 
 const (
 	PlatformLocal        Platform = "local"
-	PlatformTelegram     Platform = "telegram"
-	PlatformDiscord      Platform = "discord"
-	PlatformSlack        Platform = "slack"
-	PlatformWhatsApp     Platform = "whatsapp"
-	PlatformSignal       Platform = "signal"
-	PlatformMatrix       Platform = "matrix"
-	PlatformMattermost   Platform = "mattermost"
-	PlatformHomeAssistant Platform = "homeassistant"
-	PlatformDingTalk     Platform = "dingtalk"
-	PlatformFeishu       Platform = "feishu"
-	PlatformWeCom        Platform = "wecom"
-	PlatformEmail        Platform = "email"
-	PlatformSMS          Platform = "sms"
-	PlatformWebhook      Platform = "webhook"
-	PlatformAPIServer    Platform = "apiserver"
+	PlatformDMWork       Platform = "dmwork"
 )
 
 // MessageEvent represents an incoming message from any platform.

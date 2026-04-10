@@ -18,7 +18,7 @@ func TestSessionStore(t *testing.T) {
 	}
 
 	src := &SessionSource{
-		Platform: PlatformTelegram,
+		Platform: PlatformDMWork,
 		ChatID:   "chat_123",
 		UserID:   "user_456",
 	}
@@ -55,7 +55,7 @@ func TestSessionStore(t *testing.T) {
 
 func TestBuildSessionKeyVariations(t *testing.T) {
 	dm := &SessionSource{
-		Platform: PlatformTelegram,
+		Platform: PlatformDMWork,
 		ChatID:   "123",
 		UserID:   "user1",
 		ChatType: "dm",
@@ -66,7 +66,7 @@ func TestBuildSessionKeyVariations(t *testing.T) {
 	}
 
 	group := &SessionSource{
-		Platform: PlatformDiscord,
+		Platform: PlatformDMWork,
 		ChatID:   "guild_789",
 		UserID:   "user1",
 		ChatType: "group",
@@ -77,7 +77,7 @@ func TestBuildSessionKeyVariations(t *testing.T) {
 	}
 
 	thread := &SessionSource{
-		Platform: PlatformSlack,
+		Platform: PlatformDMWork,
 		ChatID:   "channel_1",
 		UserID:   "user1",
 		ThreadID: "thread_ts",

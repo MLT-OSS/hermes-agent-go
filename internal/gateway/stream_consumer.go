@@ -136,16 +136,8 @@ func (sc *StreamConsumer) flushLocked() error {
 // to avoid rate limiting.
 func defaultMinDelay(platform Platform) time.Duration {
 	switch platform {
-	case PlatformTelegram:
-		return 1 * time.Second // Telegram rate-limits at ~30 msg/s
-	case PlatformDiscord:
-		return 1 * time.Second
-	case PlatformSlack:
-		return 1 * time.Second
-	case PlatformWeCom:
-		return 2 * time.Second
-	case PlatformSMS:
-		return 3 * time.Second // SMS is slow and expensive
+	case PlatformDMWork:
+		return 500 * time.Millisecond
 	default:
 		return 500 * time.Millisecond
 	}

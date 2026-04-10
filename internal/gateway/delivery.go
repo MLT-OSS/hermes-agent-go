@@ -12,21 +12,7 @@ import (
 
 // PlatformMaxMessageLength defines per-platform message length limits.
 var PlatformMaxMessageLength = map[Platform]int{
-	PlatformTelegram:      4096,
-	PlatformDiscord:       2000,
-	PlatformSlack:         40000,
-	PlatformWhatsApp:      65536,
-	PlatformSignal:        65536,
-	PlatformMatrix:        65536,
-	PlatformMattermost:    16383,
-	PlatformDingTalk:      20000,
-	PlatformFeishu:        30000,
-	PlatformWeCom:         2048,
-	PlatformEmail:         0, // unlimited
-	PlatformSMS:           1600,
-	PlatformHomeAssistant: 65536,
-	PlatformWebhook:       65536,
-	PlatformAPIServer:     0, // unlimited
+	PlatformDMWork: 4096,
 }
 
 // DeliveryRouter routes responses to the correct platform adapter with

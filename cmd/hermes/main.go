@@ -385,24 +385,19 @@ func runGateway() error {
 
 	runner := gateway.NewRunner(gwCfg)
 
-	// Register platform adapters from environment.
-	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
-		adapter := platforms.NewTelegramAdapter(token)
-		runner.RegisterAdapter(adapter)
-	}
-	if token := os.Getenv("DISCORD_BOT_TOKEN"); token != "" {
-		adapter := platforms.NewDiscordAdapter(token)
-		runner.RegisterAdapter(adapter)
-	}
-	if botToken := os.Getenv("SLACK_BOT_TOKEN"); botToken != "" {
-		appToken := os.Getenv("SLACK_APP_TOKEN")
-		adapter := platforms.NewSlackAdapter(botToken, appToken)
+	// Register DMWork adapter.
+	if botToken := os.Getenv("DMWORK_BOT_TOKEN"); botToken != "" {
+		apiURL := os.Getenv("DMWORK_API_URL")
+		if apiURL == "" {
+			apiURL = "https://api.botgate.dmwork.cn"
+		}
+		adapter := platforms.NewDMWorkAdapter(apiURL, botToken)
 		runner.RegisterAdapter(adapter)
 	}
 
 	if len(runner.ConnectedPlatforms()) == 0 {
 		fmt.Println("No messaging platforms configured.")
-		fmt.Println("Set TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, or SLACK_BOT_TOKEN in ~/.hermes/.env")
+		fmt.Println("Set DMWORK_BOT_TOKEN and DMWORK_API_URL in ~/.hermes/.env")
 		return fmt.Errorf("no platforms configured")
 	}
 
