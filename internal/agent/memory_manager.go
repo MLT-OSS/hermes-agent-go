@@ -33,6 +33,10 @@ type MemoryProvider interface {
 
 // BuiltinMemoryProvider implements MemoryProvider using MEMORY.md and USER.md
 // files in the Hermes home directory.
+//
+// Compile-time interface check.
+var _ MemoryProvider = (*BuiltinMemoryProvider)(nil)
+
 type BuiltinMemoryProvider struct {
 	homeDir string
 }

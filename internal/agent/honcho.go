@@ -18,6 +18,10 @@ const (
 
 // HonchoProvider implements MemoryProvider using the Honcho API
 // for cloud-based memory storage across sessions.
+//
+// Compile-time interface check.
+var _ MemoryProvider = (*HonchoProvider)(nil)
+
 type HonchoProvider struct {
 	appID   string
 	userID  string

@@ -2,13 +2,83 @@ package tools
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/hermes-agent/hermes-agent-go/internal/config"
+	"sync"
 )
+
+// MemoryProvider is the interface for memory storage backends.
+// This is defined in the tools package to avoid import cycles with agent.
+type MemoryProvider interface {
+	ReadMemory() (string, error)
+	SaveMemory(key, content string) error
+	DeleteMemory(key string) error
+	ReadUserProfile() (string, error)
+	SaveUserProfile(content string) error
+}
+
+// memoryProviderRegistry holds registered memory provider factories.
+var (
+	memoryProvidersMu sync.RWMutex
+	memoryProviders   = map[string]func() MemoryProvider{}
+	activeProvider    MemoryProvider
+	activeProviderMu  sync.Mutex
+	providerInited    bool
+)
+
+// RegisterMemoryProvider registers a named memory provider factory.
+// Call this in init() of provider packages to make backends available.
+func RegisterMemoryProvider(name string, factory func() MemoryProvider) {
+	memoryProvidersMu.Lock()
+	defer memoryProvidersMu.Unlock()
+	memoryProviders[name] = factory
+}
+
+// getMemoryProvider returns the active memory provider, initializing it
+// from config on first access. Falls back to the "builtin" provider.
+func getMemoryProvider() MemoryProvider {
+	activeProviderMu.Lock()
+	defer activeProviderMu.Unlock()
+
+	if providerInited {
+		return activeProvider
+	}
+	providerInited = true
+
+	// Determine provider name from config.
+	providerName := getMemoryProviderName()
+	if providerName == "" {
+		providerName = "builtin"
+	}
+
+	memoryProvidersMu.RLock()
+	factory, ok := memoryProviders[providerName]
+	memoryProvidersMu.RUnlock()
+
+	if ok {
+		activeProvider = factory()
+	} else {
+		// Try builtin fallback.
+		memoryProvidersMu.RLock()
+		builtinFactory, hasBuiltin := memoryProviders["builtin"]
+		memoryProvidersMu.RUnlock()
+		if hasBuiltin {
+			activeProvider = builtinFactory()
+		}
+	}
+
+	return activeProvider
+}
+
+// getMemoryProviderName reads the memory provider name from config.
+// Overridden by agent package init via SetMemoryProviderNameFunc.
+var getMemoryProviderName = func() string {
+	return "" // default; overridden by agent package init
+}
+
+// SetMemoryProviderNameFunc allows the agent package to inject the config
+// reader without creating an import cycle.
+func SetMemoryProviderNameFunc(fn func() string) {
+	getMemoryProviderName = fn
+}
 
 func init() {
 	Register(&ToolEntry{
@@ -47,137 +117,77 @@ func handleMemory(args map[string]any, ctx *ToolContext) string {
 	key, _ := args["key"].(string)
 	content, _ := args["content"].(string)
 
-	memoriesDir := filepath.Join(config.HermesHome(), "memories")
-	os.MkdirAll(memoriesDir, 0755)
+	p := getMemoryProvider()
+	if p == nil {
+		return `{"error":"no memory provider configured"}`
+	}
 
 	switch action {
 	case "read":
-		return readMemory(memoriesDir)
-	case "save":
-		return saveMemory(memoriesDir, key, content)
-	case "delete":
-		return deleteMemory(memoriesDir, key)
-	case "read_user":
-		return readUserProfile(memoriesDir)
-	case "save_user":
-		return saveUserProfile(memoriesDir, content)
-	default:
-		return `{"error":"Invalid action. Use: read, save, delete, read_user, save_user"}`
-	}
-}
-
-func readMemory(dir string) string {
-	memoryPath := filepath.Join(dir, "MEMORY.md")
-	data, err := os.ReadFile(memoryPath)
-	if err != nil {
-		return toJSON(map[string]any{
-			"content": "",
-			"message": "No memory file found. Use save to create one.",
-		})
-	}
-	return toJSON(map[string]any{
-		"content": string(data),
-		"path":    memoryPath,
-	})
-}
-
-func saveMemory(dir, key, content string) string {
-	if key == "" || content == "" {
-		return `{"error":"Both key and content are required for save"}`
-	}
-
-	memoryPath := filepath.Join(dir, "MEMORY.md")
-	existing, _ := os.ReadFile(memoryPath)
-
-	timestamp := time.Now().Format("2006-01-02 15:04")
-	entry := fmt.Sprintf("\n## %s\n*Saved: %s*\n\n%s\n", key, timestamp, content)
-
-	// Check if key exists and update
-	existingStr := string(existing)
-	marker := fmt.Sprintf("## %s\n", key)
-	if idx := strings.Index(existingStr, marker); idx != -1 {
-		// Find next section or end
-		nextIdx := strings.Index(existingStr[idx+len(marker):], "\n## ")
-		if nextIdx != -1 {
-			existingStr = existingStr[:idx] + entry[1:] + existingStr[idx+len(marker)+nextIdx:]
-		} else {
-			existingStr = existingStr[:idx] + entry[1:]
+		data, err := p.ReadMemory()
+		if err != nil {
+			return toJSON(map[string]any{"error": fmt.Sprintf("read memory: %v", err)})
 		}
-	} else {
-		existingStr += entry
-	}
+		if data == "" {
+			return toJSON(map[string]any{
+				"content": "",
+				"message": "No memory found. Use save to create one.",
+			})
+		}
+		return toJSON(map[string]any{"content": data})
 
-	if err := os.WriteFile(memoryPath, []byte(existingStr), 0644); err != nil {
-		return toJSON(map[string]any{"error": fmt.Sprintf("Failed to save: %v", err)})
-	}
-
-	return toJSON(map[string]any{
-		"success": true,
-		"key":     key,
-		"message": "Memory saved successfully",
-	})
-}
-
-func deleteMemory(dir, key string) string {
-	if key == "" {
-		return `{"error":"key is required for delete"}`
-	}
-
-	memoryPath := filepath.Join(dir, "MEMORY.md")
-	data, err := os.ReadFile(memoryPath)
-	if err != nil {
-		return `{"error":"No memory file found"}`
-	}
-
-	content := string(data)
-	marker := fmt.Sprintf("## %s\n", key)
-	idx := strings.Index(content, marker)
-	if idx == -1 {
-		return toJSON(map[string]any{"error": fmt.Sprintf("Memory key '%s' not found", key)})
-	}
-
-	nextIdx := strings.Index(content[idx+len(marker):], "\n## ")
-	if nextIdx != -1 {
-		content = content[:idx] + content[idx+len(marker)+nextIdx+1:]
-	} else {
-		content = content[:idx]
-	}
-
-	os.WriteFile(memoryPath, []byte(content), 0644)
-	return toJSON(map[string]any{
-		"success": true,
-		"key":     key,
-		"message": "Memory deleted",
-	})
-}
-
-func readUserProfile(dir string) string {
-	userPath := filepath.Join(dir, "USER.md")
-	data, err := os.ReadFile(userPath)
-	if err != nil {
+	case "save":
+		if key == "" || content == "" {
+			return `{"error":"both key and content are required for save"}`
+		}
+		if err := p.SaveMemory(key, content); err != nil {
+			return toJSON(map[string]any{"error": fmt.Sprintf("save memory: %v", err)})
+		}
 		return toJSON(map[string]any{
-			"content": "",
-			"message": "No user profile found.",
+			"success": true,
+			"key":     key,
+			"message": "Memory saved successfully",
 		})
-	}
-	return toJSON(map[string]any{
-		"content": string(data),
-		"path":    userPath,
-	})
-}
 
-func saveUserProfile(dir, content string) string {
-	if content == "" {
-		return `{"error":"content is required"}`
-	}
+	case "delete":
+		if key == "" {
+			return `{"error":"key is required for delete"}`
+		}
+		if err := p.DeleteMemory(key); err != nil {
+			return toJSON(map[string]any{"error": fmt.Sprintf("delete memory: %v", err)})
+		}
+		return toJSON(map[string]any{
+			"success": true,
+			"key":     key,
+			"message": "Memory deleted",
+		})
 
-	userPath := filepath.Join(dir, "USER.md")
-	if err := os.WriteFile(userPath, []byte(content), 0644); err != nil {
-		return toJSON(map[string]any{"error": fmt.Sprintf("Failed to save: %v", err)})
-	}
+	case "read_user":
+		data, err := p.ReadUserProfile()
+		if err != nil {
+			return toJSON(map[string]any{"error": fmt.Sprintf("read user profile: %v", err)})
+		}
+		if data == "" {
+			return toJSON(map[string]any{
+				"content": "",
+				"message": "No user profile found.",
+			})
+		}
+		return toJSON(map[string]any{"content": data})
 
-	return toJSON(map[string]any{
-		"success": true,
-		"message": "User profile saved",
-	})
+	case "save_user":
+		if content == "" {
+			return `{"error":"content is required"}`
+		}
+		if err := p.SaveUserProfile(content); err != nil {
+			return toJSON(map[string]any{"error": fmt.Sprintf("save user profile: %v", err)})
+		}
+		return toJSON(map[string]any{
+			"success": true,
+			"message": "User profile saved",
+		})
+
+	default:
+		return `{"error":"invalid action. use: read, save, delete, read_user, save_user"}`
+	}
 }
