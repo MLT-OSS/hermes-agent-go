@@ -1,0 +1,94 @@
+name: "✨ Feature Request"
+description: Suggest a new feature, improvement, or missing functionality.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Before submitting, please:
+
+        - Search [existing issues](https://github.com/MLT-OSS/hermes-agent-go/issues) — someone may have already proposed this
+        - Check whether the feature exists in the [Python original](https://github.com/NousResearch/hermes-agent) but is missing from the Go rewrite (if so, use the "Gap from Python Original" template instead)
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: What problem does this solve? What are you trying to do that you can't today?
+      placeholder: |
+        I'm trying to use Hermes with [provider/platform/workflow] but currently
+        there's no way to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How do you think this should work? Be as specific as you can — CLI flags, config options, API design.
+      placeholder: |
+        Add a `--foo` flag to `hermes chat` that enables...
+        Or: Add a new tool `bar_tool` that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you consider? Why is the proposed solution better?
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Feature Type
+      options:
+        - New tool
+        - New bundled skill
+        - Agent core improvement (context, routing, fallback)
+        - CLI improvement
+        - Gateway / messaging improvement
+        - Platform adapter (new or enhanced)
+        - ACP / editor integration
+        - Configuration / profiles
+        - Performance / reliability
+        - Security
+        - Developer experience (tests, docs, CI)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Estimated Scope
+      description: How big is this change?
+      options:
+        - Small (single file, < 100 lines)
+        - Medium (few files, < 500 lines)
+        - Large (new module or significant refactor)
+        - Epic (cross-cutting, multiple modules)
+
+  - type: textarea
+    id: design
+    attributes:
+      label: Design Notes (optional)
+      description: |
+        If you've thought about the implementation, share design notes here.
+        Include package structure, interfaces, data flow, or API sketches.
+      placeholder: |
+        ```go
+        // New interface in internal/tools/
+        type ToolApproval interface {
+            RequestApproval(ctx context.Context, cmd string) (bool, error)
+            ...
+        }
+        ```
+
+  - type: checkboxes
+    id: pr-ready
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to implement this myself and submit a PR

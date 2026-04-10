@@ -1,0 +1,92 @@
+name: "🔧 Setup / Build Help"
+description: Having trouble building, installing, or configuring Hermes Agent Go?
+title: "[Setup]: "
+labels: ["setup", "question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sorry you're having trouble! Please fill out the details below.
+
+        **Quick checks first:**
+        - Ensure you have Go 1.22+ installed: `go version`
+        - Try building from latest main: `git pull && go build ./cmd/hermes/`
+        - Run diagnostics: `./hermes doctor`
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's Going Wrong?
+      description: Describe what you're trying to do and where it fails.
+      placeholder: |
+        I'm trying to build the project on Linux/arm64 but `go build` fails with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps Taken
+      description: What did you do? Include the exact commands you ran.
+      placeholder: |
+        1. Cloned the repo: `git clone https://github.com/MLT-OSS/hermes-agent-go.git`
+        2. Ran: `go build -o hermes ./cmd/hermes/`
+        3. Got error: ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build-method
+    attributes:
+      label: Build Method
+      options:
+        - "go build (source)"
+        - "make build"
+        - Docker
+        - Cross-compilation (GOOS/GOARCH)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: "Ubuntu 24.04 / macOS 15.2 / Windows 11"
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go Version
+      description: "Output of `go version`"
+      placeholder: "go1.22.0 linux/amd64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor-output
+    attributes:
+      label: Output of `./hermes doctor`
+      description: If you got far enough to build, paste the output. This will be auto-formatted.
+      render: shell
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Full Error Output
+      description: Paste the complete error message or build output. This will be auto-formatted.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What I've Already Tried
+      description: List any fixes or workarounds you've already attempted.
+      placeholder: |
+        - Updated Go to 1.22
+        - Ran `go mod tidy`
+        - Tried `CGO_ENABLED=0 go build`
