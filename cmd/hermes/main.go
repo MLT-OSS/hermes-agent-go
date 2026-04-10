@@ -44,13 +44,13 @@ func main() {
 
 // --- Persistent flags ---
 var (
-	flagProfile string
-	flagModel   string
-	flagQuiet   bool
-	flagDebug   bool
-	flagBaseURL string
-	flagAPIKey  string
-	flagAPIMode string
+	flagProfile  string
+	flagModel    string
+	flagQuiet    bool
+	flagDebug    bool
+	flagBaseURL  string
+	flagAPIKey   string
+	flagAPIMode  string
 	flagProvider string
 )
 
@@ -91,9 +91,16 @@ func init() {
 	rootCmd.AddCommand(cronCmd)
 	rootCmd.AddCommand(clawCmd)
 	rootCmd.AddCommand(batchCmd)
+	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(themeCmd)
 }
 
 func setupLogging() {
+	// Wire --profile flag to config before any config access.
+	if flagProfile != "" {
+		config.OverrideActiveProfile(flagProfile)
+	}
+
 	level := slog.LevelInfo
 	if flagDebug || os.Getenv("HERMES_DEBUG") != "" {
 		level = slog.LevelDebug
@@ -669,6 +676,76 @@ var cronCmd = &cobra.Command{
 
 		default:
 			return fmt.Errorf("unknown subcommand: %s (try: list, run, pause, resume, remove)", args[0])
+		}
+	},
+}
+
+// --- Profile command ---
+
+var profileCmd = &cobra.Command{
+	Use:   "profile [subcommand]",
+	Short: "Manage configuration profiles",
+	Long:  "Create, switch, list, and delete isolated configuration profiles.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 || args[0] == "list" {
+			cli.RunProfileList()
+			return nil
+		}
+
+		switch args[0] {
+		case "show":
+			cli.RunProfileShow()
+			return nil
+
+		case "create":
+			if len(args) < 2 {
+				return fmt.Errorf("usage: hermes profile create <name>")
+			}
+			return cli.RunProfileCreate(args[1])
+
+		case "delete":
+			if len(args) < 2 {
+				return fmt.Errorf("usage: hermes profile delete <name>")
+			}
+			return cli.RunProfileDelete(args[1])
+
+		case "switch":
+			if len(args) < 2 {
+				return fmt.Errorf("usage: hermes profile switch <name>")
+			}
+			return cli.RunProfileSwitch(args[1])
+
+		default:
+			return fmt.Errorf("unknown subcommand: %s (try: list, show, create, delete, switch)", args[0])
+		}
+	},
+}
+
+// --- Theme command ---
+
+var themeCmd = &cobra.Command{
+	Use:   "theme [subcommand]",
+	Short: "Manage CLI themes",
+	Long:  "List, switch, and show CLI visual themes (skins).",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 || args[0] == "list" {
+			cli.RunThemeList()
+			return nil
+		}
+
+		switch args[0] {
+		case "show":
+			cli.RunThemeShow()
+			return nil
+
+		case "switch":
+			if len(args) < 2 {
+				return fmt.Errorf("usage: hermes theme switch <name>")
+			}
+			return cli.RunThemeSwitch(args[1])
+
+		default:
+			return fmt.Errorf("unknown subcommand: %s (try: list, show, switch)", args[0])
 		}
 	},
 }
