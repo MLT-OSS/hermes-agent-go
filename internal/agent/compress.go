@@ -266,7 +266,6 @@ func (a *AIAgent) generateSummary(ctx context.Context, messages []llm.Message, m
 
 	resp, err := a.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		slog.Warn("summary generation failed", "error", err)
 		return "", fmt.Errorf("generate summary: %w", err)
 	}
 
