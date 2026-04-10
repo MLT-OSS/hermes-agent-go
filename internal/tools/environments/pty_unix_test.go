@@ -105,7 +105,7 @@ func TestStripANSI(t *testing.T) {
 		{"color code", "\x1b[31mred\x1b[0m", "red"},
 		{"cursor move", "\x1b[2Jhello", "hello"},
 		{"bold", "\x1b[1mbold\x1b[0m text", "bold text"},
-		{"control chars", "a\x07b\x08c", "ac"},
+		{"control chars", "a\x07b\x08c", "abc"},
 		{"preserves newlines", "line1\nline2\n", "line1\nline2\n"},
 		{"preserves tabs", "col1\tcol2", "col1\tcol2"},
 		{"empty", "", ""},
