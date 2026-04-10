@@ -41,7 +41,8 @@ func (d *DiscordAdapter) Connect(ctx context.Context) error {
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages |
 		discordgo.IntentsDirectMessages |
-		discordgo.IntentsMessageContent
+		discordgo.IntentsMessageContent |
+		discordgo.IntentsGuilds
 
 	dg.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// Ignore messages from the bot itself.
@@ -50,6 +51,9 @@ func (d *DiscordAdapter) Connect(ctx context.Context) error {
 		}
 		d.handleMessage(s, m)
 	})
+
+	// Handle slash command interactions.
+	dg.AddHandler(d.handleInteraction)
 
 	if err := dg.Open(); err != nil {
 		return fmt.Errorf("open Discord connection: %w", err)
