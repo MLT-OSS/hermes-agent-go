@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,10 +136,9 @@ func (t *stdioTransport) Connect(ctx context.Context) error {
 	copy(args, t.cmd.Args[1:])
 
 	cmd := exec.CommandContext(ctx, t.cmd.Path, args...)
-	cmd.Env = os.Environ()
-	for k, v := range t.env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
+	// Use sandboxed environment: strip sensitive API keys/tokens,
+	// then apply user-specified overrides from MCP config.
+	cmd.Env = buildSafeEnv(t.env)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -201,120 +199,9 @@ func (t *stdioTransport) Close() error {
 	return nil
 }
 
-// ---------- SSE transport ----------
-
-type sseTransport struct {
-	url        string
-	httpClient *http.Client
-	respCh     chan *jsonRPCResponse
-	cancel     context.CancelFunc
-}
-
-func newSSETransport(url string) *sseTransport {
-	return &sseTransport{
-		url:        url,
-		httpClient: &http.Client{Timeout: 0}, // no timeout for SSE
-		respCh:     make(chan *jsonRPCResponse, 64),
-	}
-}
-
-func (t *sseTransport) Connect(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	t.cancel = cancel
-
-	req, err := http.NewRequestWithContext(ctx, "GET", t.url, nil)
-	if err != nil {
-		return fmt.Errorf("create SSE request: %w", err)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Cache-Control", "no-cache")
-
-	resp, err := t.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("SSE connect: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return fmt.Errorf("SSE server returned %d", resp.StatusCode)
-	}
-
-	// Read SSE events in background
-	go func() {
-		defer resp.Body.Close()
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
-
-		var dataLines []string
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			if strings.HasPrefix(line, "data: ") {
-				dataLines = append(dataLines, strings.TrimPrefix(line, "data: "))
-			} else if line == "" && len(dataLines) > 0 {
-				// End of event
-				eventData := strings.Join(dataLines, "\n")
-				dataLines = nil
-
-				var rpcResp jsonRPCResponse
-				if err := json.Unmarshal([]byte(eventData), &rpcResp); err != nil {
-					slog.Warn("SSE parse error", "error", err)
-					continue
-				}
-				t.respCh <- &rpcResp
-			}
-		}
-	}()
-
-	return nil
-}
-
-func (t *sseTransport) Send(req jsonRPCRequest) error {
-	data, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	// For SSE, we POST the request to the server
-	postURL := t.url
-	if strings.HasSuffix(postURL, "/sse") {
-		postURL = strings.TrimSuffix(postURL, "/sse") + "/message"
-	}
-
-	httpReq, err := http.NewRequest("POST", postURL, strings.NewReader(string(data)))
-	if err != nil {
-		return fmt.Errorf("create POST request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := t.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("POST request: %w", err)
-	}
-	resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("server returned %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-func (t *sseTransport) Receive() (*jsonRPCResponse, error) {
-	select {
-	case resp := <-t.respCh:
-		return resp, nil
-	case <-time.After(30 * time.Second):
-		return nil, fmt.Errorf("SSE receive timeout")
-	}
-}
-
-func (t *sseTransport) Close() error {
-	if t.cancel != nil {
-		t.cancel()
-	}
-	return nil
-}
+// Old sseTransport removed — replaced by sseTransportV2 in mcp_sse.go.
+// sseTransportV2 adds: proper goroutine lifecycle (rule 4), SSE event type
+// parsing, notification channel for tools/list_changed, header passthrough.
 
 // ---------- MCP Client methods ----------
 
@@ -348,9 +235,15 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 		c.transport = st
 	case "sse":
 		if c.config.URL == "" {
-			return fmt.Errorf("SSE transport requires a 'url' field")
+			return fmt.Errorf("sse transport requires a 'url' field")
 		}
-		c.transport = newSSETransport(c.config.URL)
+		headers := make(map[string]string)
+		for k, v := range c.config.Env {
+			if strings.HasPrefix(strings.ToUpper(k), "HEADER_") {
+				headers[strings.TrimPrefix(k, "HEADER_")] = v
+			}
+		}
+		c.transport = newSSETransportV2(c.config.URL, headers)
 	default:
 		return fmt.Errorf("unknown MCP transport: %s", transport)
 	}
@@ -367,7 +260,7 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 		Method:  "initialize",
 		Params: map[string]any{
 			"protocolVersion": "2024-11-05",
-			"capabilities":   map[string]any{},
+			"capabilities":    map[string]any{},
 			"clientInfo": map[string]any{
 				"name":    "hermes-agent",
 				"version": "1.0.0",
@@ -520,6 +413,72 @@ func (c *MCPClient) Shutdown() error {
 	c.connected = false
 	slog.Info("MCP server shutting down", "name", c.name)
 	return c.transport.Close()
+}
+
+// RefreshTools re-discovers tools from the MCP server and re-registers them.
+// Called when a tools/list_changed notification is received.
+func (c *MCPClient) RefreshTools(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.connected {
+		return fmt.Errorf("mcp client not connected")
+	}
+
+	tools, err := c.DiscoverTools(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh tools: %w", err)
+	}
+
+	// Deregister old tools for this server.
+	registry := Registry()
+	for _, name := range registry.GetAllToolNames() {
+		if registry.GetToolsetForTool(name) == "mcp:"+c.name {
+			registry.Deregister(name)
+		}
+	}
+
+	// Re-register.
+	for _, tool := range tools {
+		registerMCPTool(c.name, c, tool)
+	}
+
+	slog.Info("MCP tools refreshed", "server", c.name, "count", len(tools))
+	return nil
+}
+
+// startNotificationWatcher starts a goroutine that listens for MCP
+// notifications (e.g. tools/list_changed) on the SSE transport.
+// The goroutine exits when the context is cancelled.
+func (c *MCPClient) startNotificationWatcher(ctx context.Context, wg *sync.WaitGroup) {
+	sse, ok := c.transport.(*sseTransportV2)
+	if !ok {
+		return // stdio transport has no notification channel
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case notif, ok := <-sse.Notifications():
+				if !ok {
+					return
+				}
+				switch notif.Method {
+				case "notifications/tools/list_changed":
+					slog.Info("MCP tools list changed, refreshing", "server", c.name)
+					if err := c.RefreshTools(ctx); err != nil {
+						slog.Warn("MCP tool refresh failed", "server", c.name, "error", err)
+					}
+				default:
+					slog.Debug("MCP notification", "server", c.name, "method", notif.Method)
+				}
+			}
+		}
+	}()
 }
 
 // ---------- MCP Manager ----------
