@@ -122,24 +122,3 @@ func TestExtractThinkContent(t *testing.T) {
 		})
 	}
 }
-
-func TestHasContentAfterThinkBlock(t *testing.T) {
-	tests := []struct {
-		input string
-		want  bool
-	}{
-		{"<think>reasoning</think>answer", true},
-		{"<think>only reasoning</think>", false},
-		{"<think>reasoning</think>  \n  ", false},
-		{"plain text", true},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			if got := HasContentAfterThinkBlock(tt.input); got != tt.want {
-				t.Errorf("HasContentAfterThinkBlock(%q) = %v, want %v", tt.input, got, tt.want)
-			}
-		})
-	}
-}

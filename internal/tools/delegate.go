@@ -215,11 +215,6 @@ func handleDelegateTask(args map[string]any, ctx *ToolContext) string {
 	})
 }
 
-// runSubAgent creates a minimal LLM client and runs a single-turn conversation.
-func runSubAgent(goal, model string, cfg *config.Config) (string, error) {
-	return runSubAgentWithOptions(goal, model, "", "", "", cfg, 0)
-}
-
 // runSubAgentWithOptions creates an LLM client with full control over provider/credentials
 // and runs a multi-turn agent loop with tool calling. It enforces the blocked tools list for children.
 func runSubAgentWithOptions(goal, model, provider, apiKey, baseURL string, cfg *config.Config, depth int) (string, error) {

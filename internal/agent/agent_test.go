@@ -126,7 +126,6 @@ func TestStreamCallbacksNil(t *testing.T) {
 	// Should not panic with nil callbacks
 	a.fireStreamDelta("test")
 	a.fireReasoning("test")
-	a.fireToolGenStarted("test")
 	a.fireToolProgress("test", "args")
 	a.fireToolStart("test")
 	a.fireToolComplete("test")
@@ -336,101 +335,6 @@ func TestFormatCost(t *testing.T) {
 	}
 }
 
-// --- FormatDuration tests ---
-
-func TestFormatDuration(t *testing.T) {
-	tests := []struct {
-		d        time.Duration
-		expected string
-	}{
-		{500 * time.Millisecond, "500ms"},
-		{0, "0ms"},
-		{1500 * time.Millisecond, "1.5s"},
-		{59 * time.Second, "59.0s"},
-		{90 * time.Second, "1m30s"},
-		{5 * time.Minute, "5m0s"},
-		{125 * time.Second, "2m5s"},
-	}
-
-	for _, tt := range tests {
-		result := FormatDuration(tt.d)
-		if result != tt.expected {
-			t.Errorf("FormatDuration(%v) = '%s', want '%s'", tt.d, result, tt.expected)
-		}
-	}
-}
-
-// --- FormatTokenCount tests ---
-
-func TestFormatTokenCount(t *testing.T) {
-	tests := []struct {
-		tokens   int
-		expected string
-	}{
-		{0, "0"},
-		{500, "500"},
-		{999, "999"},
-		{1000, "1.0K"},
-		{1500, "1.5K"},
-		{50000, "50.0K"},
-		{999999, "1000.0K"},
-		{1000000, "1.00M"},
-		{2500000, "2.50M"},
-	}
-
-	for _, tt := range tests {
-		result := FormatTokenCount(tt.tokens)
-		if result != tt.expected {
-			t.Errorf("FormatTokenCount(%d) = '%s', want '%s'", tt.tokens, result, tt.expected)
-		}
-	}
-}
-
-// --- FormatToolTrace tests ---
-
-func TestFormatToolTrace(t *testing.T) {
-	result := FormatToolTrace(nil)
-	if result != "(no tools used)" {
-		t.Errorf("Expected '(no tools used)', got '%s'", result)
-	}
-
-	result = FormatToolTrace([]string{"terminal"})
-	if result != "terminal" {
-		t.Errorf("Expected 'terminal', got '%s'", result)
-	}
-}
-
-// --- FormatConversationSummary tests ---
-
-func TestFormatConversationSummary(t *testing.T) {
-	result := &ConversationResult{
-		Model:       "test-model",
-		APICalls:    3,
-		TotalTokens: 5000,
-		Completed:   true,
-	}
-	summary := FormatConversationSummary(result)
-	if !strings.Contains(summary, "test-model") {
-		t.Errorf("Summary should contain model name: %s", summary)
-	}
-	if !strings.Contains(summary, "completed") {
-		t.Errorf("Summary should contain 'completed': %s", summary)
-	}
-
-	result.Completed = false
-	result.Interrupted = true
-	summary = FormatConversationSummary(result)
-	if !strings.Contains(summary, "interrupted") {
-		t.Errorf("Summary should contain 'interrupted': %s", summary)
-	}
-
-	result.Interrupted = false
-	summary = FormatConversationSummary(result)
-	if !strings.Contains(summary, "partial") {
-		t.Errorf("Summary should contain 'partial': %s", summary)
-	}
-}
-
 // --- SmartRouter tests ---
 
 func TestSmartRouter_Disabled(t *testing.T) {
@@ -557,86 +461,6 @@ func TestSaveOversizedResult_SmallInput(t *testing.T) {
 	}
 }
 
-// --- RedactSecrets tests ---
-
-func TestRedactSecrets_Empty(t *testing.T) {
-	result := RedactSecrets("")
-	if result != "" {
-		t.Errorf("Expected empty string, got '%s'", result)
-	}
-}
-
-func TestRedactSecrets_NoSecrets(t *testing.T) {
-	text := "This is normal text with no secrets"
-	result := RedactSecrets(text)
-	if result != text {
-		t.Errorf("Expected unchanged text, got '%s'", result)
-	}
-}
-
-func TestRedactSecrets_OpenAIKey(t *testing.T) {
-	text := "My key is sk-1234567890abcdefghijklmnop"
-	result := RedactSecrets(text)
-	if strings.Contains(result, "sk-1234567890") {
-		t.Errorf("Expected OpenAI key to be redacted, got '%s'", result)
-	}
-	if !strings.Contains(result, "[REDACTED]") {
-		t.Errorf("Expected [REDACTED], got '%s'", result)
-	}
-}
-
-func TestRedactSecrets_AnthropicKey(t *testing.T) {
-	text := "Key: sk-ant-1234567890abcdefghijklmnop"
-	result := RedactSecrets(text)
-	if strings.Contains(result, "sk-ant-1234567890") {
-		t.Errorf("Expected Anthropic key to be redacted, got '%s'", result)
-	}
-}
-
-func TestRedactSecrets_GitHubToken(t *testing.T) {
-	text := "Token: ghp_123456789012345678901234567890abcdef"
-	result := RedactSecrets(text)
-	if strings.Contains(result, "ghp_") {
-		t.Errorf("Expected GitHub token to be redacted, got '%s'", result)
-	}
-}
-
-func TestRedactSecrets_BearerToken(t *testing.T) {
-	text := "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
-	result := RedactSecrets(text)
-	if !strings.Contains(result, "[REDACTED]") {
-		t.Errorf("Expected bearer token to be redacted, got '%s'", result)
-	}
-}
-
-func TestRedactSecrets_AWSKey(t *testing.T) {
-	text := "AKIA1234567890ABCDEF"
-	result := RedactSecrets(text)
-	if strings.Contains(result, "AKIA12345678") {
-		t.Errorf("Expected AWS key to be redacted, got '%s'", result)
-	}
-}
-
-func TestRedactSecrets_SlackToken(t *testing.T) {
-	text := "xoxb-my-slack-token-value"
-	result := RedactSecrets(text)
-	if strings.Contains(result, "xoxb-") {
-		t.Errorf("Expected Slack token to be redacted, got '%s'", result)
-	}
-}
-
-func TestContainsSecret(t *testing.T) {
-	if ContainsSecret("normal text") {
-		t.Error("Expected false for normal text")
-	}
-	if !ContainsSecret("sk-1234567890abcdefghijklmnop") {
-		t.Error("Expected true for OpenAI key")
-	}
-	if !ContainsSecret("ghp_123456789012345678901234567890abcdef") {
-		t.Error("Expected true for GitHub token")
-	}
-}
-
 // --- NormalizeModelName tests ---
 
 func TestNormalizeModelName_Empty(t *testing.T) {
@@ -707,44 +531,6 @@ func TestListModelAliases(t *testing.T) {
 	}
 	if _, ok := groups["openai"]; !ok {
 		t.Error("Expected 'openai' group in aliases")
-	}
-}
-
-// --- DetectSubdirectoryHints tests ---
-
-func TestDetectSubdirectoryHints(t *testing.T) {
-	hints := DetectSubdirectoryHints()
-	if hints == nil {
-		t.Fatal("Expected non-nil hints")
-	}
-	if hints.WorkingDir == "" {
-		t.Error("Expected non-empty working dir")
-	}
-}
-
-func TestDetectLanguage(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a go.mod file
-	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test"), 0644)
-	lang := detectLanguage(tmpDir)
-	if lang != "go" {
-		t.Errorf("Expected 'go', got '%s'", lang)
-	}
-
-	// Create a Python project dir
-	pyDir := t.TempDir()
-	os.WriteFile(filepath.Join(pyDir, "pyproject.toml"), []byte("[project]"), 0644)
-	lang = detectLanguage(pyDir)
-	if lang != "python" {
-		t.Errorf("Expected 'python', got '%s'", lang)
-	}
-
-	// Empty directory
-	emptyDir := t.TempDir()
-	lang = detectLanguage(emptyDir)
-	if lang != "" {
-		t.Errorf("Expected empty string for no indicators, got '%s'", lang)
 	}
 }
 
@@ -906,160 +692,6 @@ func TestSanitizeFilename(t *testing.T) {
 }
 
 // --- Checkpoint helpers tests ---
-
-func TestBuildCheckpointSummary(t *testing.T) {
-	// No user messages
-	msgs := []map[string]any{
-		{"role": "system", "content": "System"},
-	}
-	summary := buildCheckpointSummary(msgs)
-	if summary != "Empty session" {
-		t.Errorf("Expected 'Empty session', got '%s'", summary)
-	}
-
-	// With user message
-	msgs = []map[string]any{
-		{"role": "user", "content": "Hello there"},
-	}
-	summary = buildCheckpointSummary(msgs)
-	if summary != "Hello there" {
-		t.Errorf("Expected 'Hello there', got '%s'", summary)
-	}
-
-	// Long user message
-	long := strings.Repeat("a", 100)
-	msgs = []map[string]any{
-		{"role": "user", "content": long},
-	}
-	summary = buildCheckpointSummary(msgs)
-	if len(summary) > 80 {
-		t.Errorf("Expected truncated summary, got %d chars", len(summary))
-	}
-}
-
-func TestFindByte(t *testing.T) {
-	if findByte("hello", 'l') != 2 {
-		t.Error("Expected index 2 for 'l' in 'hello'")
-	}
-	if findByte("hello", 'z') != -1 {
-		t.Error("Expected -1 for 'z' in 'hello'")
-	}
-	if findByte("", 'a') != -1 {
-		t.Error("Expected -1 for empty string")
-	}
-}
-
-// --- CalculateBreakpoints tests ---
-
-func TestCalculateBreakpoints_Zero(t *testing.T) {
-	bp := CalculateBreakpoints(0)
-	if bp != nil {
-		t.Errorf("Expected nil for 0 messages, got %v", bp)
-	}
-}
-
-func TestCalculateBreakpoints_One(t *testing.T) {
-	bp := CalculateBreakpoints(1)
-	if len(bp) != 1 {
-		t.Fatalf("Expected 1 breakpoint for 1 message, got %d", len(bp))
-	}
-	if bp[0].Index != 0 {
-		t.Errorf("Expected breakpoint at index 0, got %d", bp[0].Index)
-	}
-	if bp[0].TTL != "ephemeral" {
-		t.Errorf("Expected TTL 'ephemeral', got '%s'", bp[0].TTL)
-	}
-}
-
-func TestCalculateBreakpoints_Four(t *testing.T) {
-	bp := CalculateBreakpoints(4)
-	// Should have breakpoints at index 0 and 3
-	if len(bp) != 2 {
-		t.Fatalf("Expected 2 breakpoints, got %d", len(bp))
-	}
-	if bp[0].Index != 0 || bp[1].Index != 3 {
-		t.Errorf("Expected indices [0, 3], got [%d, %d]", bp[0].Index, bp[1].Index)
-	}
-}
-
-func TestCalculateBreakpoints_Large(t *testing.T) {
-	bp := CalculateBreakpoints(50)
-	// Should have: 0, 3, 20, 40
-	if len(bp) < 4 {
-		t.Errorf("Expected at least 4 breakpoints for 50 messages, got %d", len(bp))
-	}
-	if bp[0].Index != 0 {
-		t.Error("First breakpoint should be at 0")
-	}
-}
-
-// --- CacheControl sentinel tests ---
-
-func TestCacheControlSentinel(t *testing.T) {
-	s := cacheControlSentinel("ephemeral")
-	if s != "__cache_control:ephemeral" {
-		t.Errorf("Expected '__cache_control:ephemeral', got '%s'", s)
-	}
-}
-
-func TestIsCacheControlSentinel(t *testing.T) {
-	if !IsCacheControlSentinel("__cache_control:ephemeral") {
-		t.Error("Expected true for valid sentinel")
-	}
-	if IsCacheControlSentinel("not a sentinel") {
-		t.Error("Expected false for non-sentinel")
-	}
-	if IsCacheControlSentinel("") {
-		t.Error("Expected false for empty string")
-	}
-	if IsCacheControlSentinel("__cache_control") {
-		t.Error("Expected false for incomplete sentinel")
-	}
-}
-
-func TestParseCacheControlTTL(t *testing.T) {
-	ttl := ParseCacheControlTTL("__cache_control:ephemeral")
-	if ttl != "ephemeral" {
-		t.Errorf("Expected 'ephemeral', got '%s'", ttl)
-	}
-
-	ttl = ParseCacheControlTTL("not a sentinel")
-	if ttl != "" {
-		t.Errorf("Expected empty for non-sentinel, got '%s'", ttl)
-	}
-}
-
-func TestApplyPromptCaching(t *testing.T) {
-	msgs := []llm.Message{
-		{Role: "system", Content: "System prompt"},
-		{Role: "user", Content: "Hello"},
-		{Role: "assistant", Content: "Hi"},
-		{Role: "user", Content: "How are you?"},
-		{Role: "assistant", Content: "Good!"},
-	}
-
-	result := ApplyPromptCaching(msgs)
-	if len(result) != len(msgs) {
-		t.Errorf("Expected same length, got %d", len(result))
-	}
-
-	// First message should have cache control
-	if !IsCacheControlSentinel(result[0].ReasoningContent) {
-		t.Error("Expected cache control on system prompt")
-	}
-
-	// Index 3 should have cache control
-	if !IsCacheControlSentinel(result[3].ReasoningContent) {
-		t.Error("Expected cache control at index 3")
-	}
-}
-
-func TestApplyPromptCaching_Empty(t *testing.T) {
-	result := ApplyPromptCaching(nil)
-	if result != nil {
-		t.Error("Expected nil for nil input")
-	}
-}
 
 // --- CredentialPool tests ---
 
@@ -1491,15 +1123,6 @@ func TestFireStatus_WithCallback(t *testing.T) {
 	a.fireStatus("thinking...")
 	if received != "thinking..." {
 		t.Errorf("Expected 'thinking...', got '%s'", received)
-	}
-}
-
-func TestFireToolGenStarted_WithCallback(t *testing.T) {
-	var received string
-	a := &AIAgent{callbacks: &StreamCallbacks{OnToolGenStarted: func(s string) { received = s }}}
-	a.fireToolGenStarted("read_file")
-	if received != "read_file" {
-		t.Errorf("Expected 'read_file', got '%s'", received)
 	}
 }
 

@@ -543,16 +543,17 @@ func (c *MCPClient) Shutdown() error {
 // RefreshTools re-discovers tools from the MCP server and re-registers them.
 // Called when a tools/list_changed notification is received.
 func (c *MCPClient) RefreshTools(ctx context.Context) error {
+	// Call DiscoverTools first (it acquires its own lock).
+	tools, err := c.DiscoverTools(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh tools: %w", err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.connected {
 		return fmt.Errorf("mcp client not connected")
-	}
-
-	tools, err := c.DiscoverTools(ctx)
-	if err != nil {
-		return fmt.Errorf("refresh tools: %w", err)
 	}
 
 	// Deregister old tools for this server.

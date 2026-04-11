@@ -171,23 +171,6 @@ func getCached(model string) (ModelMeta, bool) {
 	return entry.meta, true
 }
 
-// contextProbeTiers lists context sizes to try in descending order.
-var contextProbeTiers = []int{128000, 64000, 32000, 16000, 8000}
-
-// ProbeContextLength attempts to determine the context length of a model by
-// trying decreasing context sizes. This is a best-effort approach for unknown
-// models when the API lookup fails.
-//
-// For now, this returns a conservative default (128000) without actually
-// calling the LLM, since probing requires sending real requests and incurring
-// costs. The function signature accepts a *Client for future use.
-func ProbeContextLength(_ *Client, _ string) int {
-	// A real implementation would send minimal requests with different
-	// max_tokens values and observe which succeed. For now, return the
-	// largest tier as a safe default.
-	return contextProbeTiers[0]
-}
-
 // GetModelMeta returns metadata for a model using a resolution chain:
 //  1. Exact match in hardcoded KnownModels
 //  2. Strip provider prefix and try hardcoded KnownModels

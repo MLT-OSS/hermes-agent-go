@@ -13,6 +13,7 @@ import (
 	"github.com/hermes-agent/hermes-agent-go/internal/llm"
 	"github.com/hermes-agent/hermes-agent-go/internal/state"
 	"github.com/hermes-agent/hermes-agent-go/internal/tools"
+	"github.com/hermes-agent/hermes-agent-go/internal/toolsets"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -479,6 +480,9 @@ func (a *AIAgent) executeSingleTool(tc llm.ToolCall) llm.Message {
 
 	toolResult := tools.Registry().Dispatch(toolName, args, toolCtx)
 
+	// Redact secrets before the result enters conversation history
+	toolResult = RedactSecrets(toolResult)
+
 	// Save oversized results to disk
 	if IsOversizedResult(toolResult) {
 		slog.Info("Tool result oversized, saving to file", "tool", toolName, "chars", len(toolResult))
@@ -512,7 +516,7 @@ func (a *AIAgent) buildAPIMessages(messages []llm.Message) []llm.Message {
 
 func (a *AIAgent) buildToolDefs(cfg *config.Config) {
 	// Resolve which tools to enable
-	toolNames := resolveTools(cfg, a.enabledToolsets, a.disabledToolsets, a.platform)
+	toolNames := resolveTools(a.enabledToolsets, a.disabledToolsets)
 	a.validTools = toolNames
 
 	// Get OpenAI-format definitions
@@ -570,30 +574,29 @@ func (a *AIAgent) streamingAPICall(ctx context.Context, req llm.ChatRequest) (*l
 	return resp, nil
 }
 
-func resolveTools(cfg *config.Config, enabled, disabled []string, platform string) map[string]bool {
-	// Use toolsets module to resolve
-	// For now, return a set of core tools
-	coreTools := []string{
-		"web_search", "web_extract", "web_crawl",
-		"terminal", "process",
-		"read_file", "write_file", "patch", "search_files",
-		"vision_analyze", "image_generate",
-		"skills_list", "skill_view", "skill_manage",
-		"browser_navigate", "browser_snapshot", "browser_click",
-		"browser_type", "browser_scroll", "browser_back",
-		"browser_press", "browser_get_images",
-		"browser_vision", "browser_console", "browser_close",
-		"text_to_speech",
-		"todo", "memory", "session_search",
-		"clarify", "execute_code", "delegate_task",
-		"cronjob", "send_message",
-		"ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+func resolveTools(enabled, disabled []string) map[string]bool {
+	var toolList []string
+
+	if len(enabled) > 0 {
+		toolList = toolsets.ResolveMultipleToolsets(enabled)
+	} else {
+		// Default: use hermes-cli toolset (which equals CoreTools)
+		toolList = toolsets.ResolveToolset("hermes-cli")
 	}
 
-	result := make(map[string]bool, len(coreTools))
-	for _, t := range coreTools {
+	result := make(map[string]bool, len(toolList))
+	for _, t := range toolList {
 		result[t] = true
 	}
+
+	// Remove disabled toolset tools
+	if len(disabled) > 0 {
+		disabledTools := toolsets.ResolveMultipleToolsets(disabled)
+		for _, t := range disabledTools {
+			delete(result, t)
+		}
+	}
+
 	return result
 }
 
@@ -626,58 +629,6 @@ func (a *AIAgent) loadResumedSession() error {
 
 	slog.Info("Resumed session", "session_id", a.sessionID)
 	return nil
-}
-
-// loadResumedHistory loads messages from DB and converts them to llm.Message.
-func (a *AIAgent) loadResumedHistory() ([]llm.Message, error) {
-	if a.sessionDB == nil {
-		return nil, fmt.Errorf("session DB not available")
-	}
-
-	rawMsgs, err := a.sessionDB.GetMessages(a.sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("get messages: %w", err)
-	}
-
-	var messages []llm.Message
-	for _, raw := range rawMsgs {
-		role, _ := raw["role"].(string)
-		content, _ := raw["content"].(string)
-		toolCallID, _ := raw["tool_call_id"].(string)
-		toolName, _ := raw["tool_name"].(string)
-		reasoning, _ := raw["reasoning"].(string)
-
-		msg := llm.Message{
-			Role:       role,
-			Content:    content,
-			ToolCallID: toolCallID,
-			ToolName:   toolName,
-			Reasoning:  reasoning,
-		}
-
-		// Restore tool calls
-		if tcRaw, ok := raw["tool_calls"].([]map[string]any); ok {
-			for _, tc := range tcRaw {
-				id, _ := tc["id"].(string)
-				tcType, _ := tc["type"].(string)
-				fn, _ := tc["function"].(map[string]any)
-				fnName, _ := fn["name"].(string)
-				fnArgs, _ := fn["arguments"].(string)
-				msg.ToolCalls = append(msg.ToolCalls, llm.ToolCall{
-					ID:   id,
-					Type: tcType,
-					Function: llm.FunctionCall{
-						Name:      fnName,
-						Arguments: fnArgs,
-					},
-				})
-			}
-		}
-
-		messages = append(messages, msg)
-	}
-
-	return messages, nil
 }
 
 // tryFallbackModels attempts each fallback model in order after the primary fails.

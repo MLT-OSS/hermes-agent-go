@@ -104,7 +104,7 @@ func (p *CredentialPool) NewRotatorForProvider(provider string, cfg *config.Conf
 	copy(copied, creds)
 
 	rotator := NewCredentialRotator(copied)
-	rotator.Strategy = StrategyFromConfig(cfg)
+	rotator.Strategy = strategyFromConfig(cfg)
 	return rotator
 }
 

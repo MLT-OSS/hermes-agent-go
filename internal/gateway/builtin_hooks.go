@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/hermes-agent/hermes-agent-go/internal/config"
 )
 
 // RegisterBuiltinHooks registers the default hook implementations
@@ -18,7 +20,6 @@ import (
 func RegisterBuiltinHooks(registry *HookRegistry) {
 	registerLoggingHook(registry)
 	registerRateLimitHook(registry)
-	registerContentFilterHook(registry)
 	registerMetricsHook(registry)
 }
 
@@ -75,11 +76,7 @@ func logMessage(direction string, event *HookEvent) {
 }
 
 func writeToLogFile(direction, platform, user, text string) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	logDir := filepath.Join(home, ".hermes", "logs")
+	logDir := filepath.Join(config.HermesHome(), "logs")
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
 		return
 	}
@@ -149,73 +146,6 @@ func registerRateLimitHook(registry *HookRegistry) {
 		rateLimitState.history[userKey] = recent
 		return nil
 	}, 10) // High priority (low number) so it runs before other hooks.
-}
-
-// --- Content Filter Hook ---
-
-// blockedPatterns contains basic patterns to filter. In production this
-// would be much more sophisticated.
-var blockedPatterns = []string{
-	// Placeholder patterns -- real deployments should configure these
-	// via a config file or database.
-}
-
-func registerContentFilterHook(registry *HookRegistry) {
-	registry.RegisterNamedHook(HookBeforeMessage, "content_filter", func(event *HookEvent) error {
-		if event.Message == "" {
-			return nil
-		}
-
-		for _, pattern := range blockedPatterns {
-			if pattern != "" && containsIgnoreCase(event.Message, pattern) {
-				slog.Warn("Content filter triggered",
-					"pattern", pattern,
-					"session", event.SessionKey,
-				)
-				return fmt.Errorf("message blocked by content filter")
-			}
-		}
-
-		return nil
-	}, 20)
-}
-
-func containsIgnoreCase(s, substr string) bool {
-	sLower := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 32
-		}
-		sLower[i] = c
-	}
-
-	subLower := make([]byte, len(substr))
-	for i := 0; i < len(substr); i++ {
-		c := substr[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 32
-		}
-		subLower[i] = c
-	}
-
-	// Simple substring search.
-	if len(subLower) > len(sLower) {
-		return false
-	}
-	for i := 0; i <= len(sLower)-len(subLower); i++ {
-		match := true
-		for j := 0; j < len(subLower); j++ {
-			if sLower[i+j] != subLower[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
 }
 
 // --- Metrics Hook ---

@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -321,9 +320,4 @@ func (r *ToolRegistry) ToolCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.tools)
-}
-
-// init ensures json is used
-func init() {
-	_ = json.Marshal
 }

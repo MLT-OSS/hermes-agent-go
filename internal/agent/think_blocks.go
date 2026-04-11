@@ -50,13 +50,3 @@ func ExtractThinkContent(content string) (cleaned string, reasoning string) {
 	cleaned = StripThinkBlocks(content)
 	return strings.TrimSpace(cleaned), reasoning
 }
-
-// HasContentAfterThinkBlock returns true if content has meaningful text
-// after all reasoning/thinking blocks are stripped.
-func HasContentAfterThinkBlock(content string) bool {
-	if content == "" {
-		return false
-	}
-	cleaned := StripThinkBlocks(content)
-	return strings.TrimSpace(cleaned) != ""
-}

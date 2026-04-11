@@ -146,6 +146,7 @@ type Message struct {
 	FinishReason     string     `json:"finish_reason,omitempty"`
 	Reasoning        string     `json:"reasoning,omitempty"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ImageURLs        []string   `json:"image_urls,omitempty"` // multimodal: image data URLs or HTTP URLs
 }
 
 // ToolCall represents a tool call from the assistant.
@@ -318,8 +319,30 @@ func (c *Client) buildOpenAIRequest(req ChatRequest) openai.ChatCompletionReques
 	var msgs []openai.ChatCompletionMessage
 	for _, m := range req.Messages {
 		msg := openai.ChatCompletionMessage{
-			Role:    m.Role,
-			Content: m.Content,
+			Role: m.Role,
+		}
+
+		// Multimodal: if ImageURLs are present, use MultiContent parts
+		if len(m.ImageURLs) > 0 {
+			var parts []openai.ChatMessagePart
+			if m.Content != "" {
+				parts = append(parts, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeText,
+					Text: m.Content,
+				})
+			}
+			for _, imgURL := range m.ImageURLs {
+				parts = append(parts, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{
+						URL:    imgURL,
+						Detail: openai.ImageURLDetailAuto,
+					},
+				})
+			}
+			msg.MultiContent = parts
+		} else {
+			msg.Content = m.Content
 		}
 
 		if m.ToolCallID != "" {
@@ -369,5 +392,4 @@ func init() {
 	if os.Getenv("HERMES_DEBUG") != "" {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	}
-	_ = strings.Contains
 }

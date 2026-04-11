@@ -181,9 +181,9 @@ func TestParseRetryAfter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ParseRetryAfter(tt.value)
+			got := parseRetryAfter(tt.value)
 			if got != tt.want {
-				t.Errorf("ParseRetryAfter(%q) = %v, want %v", tt.value, got, tt.want)
+				t.Errorf("parseRetryAfter(%q) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
 	}
@@ -541,9 +541,9 @@ func TestStrategyFromConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := StrategyFromConfig(tt.cfg)
+			got := strategyFromConfig(tt.cfg)
 			if got != tt.want {
-				t.Errorf("StrategyFromConfig() = %q, want %q", got, tt.want)
+				t.Errorf("strategyFromConfig() = %q, want %q", got, tt.want)
 			}
 		})
 	}

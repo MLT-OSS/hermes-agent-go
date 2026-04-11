@@ -2,6 +2,8 @@ package tools
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hermes-agent/hermes-agent-go/internal/config"
+	"github.com/hermes-agent/hermes-agent-go/internal/llm"
 )
 
 func init() {
@@ -95,22 +98,19 @@ func handleVisionAnalyze(args map[string]any, ctx *ToolContext) string {
 		prompt = "Describe this image in detail."
 	}
 
-	// If a local path is given, validate it exists
+	// Build the image content for the multimodal LLM call
+	var imageContent string // data URL or plain URL
+
 	if imagePath != "" {
 		imagePath = absPath(imagePath)
 		if !fileExists(imagePath) {
 			return toJSON(map[string]any{"error": fmt.Sprintf("Image file not found: %s", imagePath)})
 		}
 
-		// For local files, convert to a data URL or just acknowledge
 		ext := strings.ToLower(filepath.Ext(imagePath))
 		mimeTypes := map[string]string{
-			".png":  "image/png",
-			".jpg":  "image/jpeg",
-			".jpeg": "image/jpeg",
-			".gif":  "image/gif",
-			".webp": "image/webp",
-			".bmp":  "image/bmp",
+			".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+			".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
 		}
 		mime, ok := mimeTypes[ext]
 		if !ok {
@@ -122,23 +122,99 @@ func handleVisionAnalyze(args map[string]any, ctx *ToolContext) string {
 			return toJSON(map[string]any{"error": fmt.Sprintf("Cannot read image: %v", err)})
 		}
 
-		return toJSON(map[string]any{
-			"status":    "analyzed",
-			"path":      imagePath,
-			"mime_type": mime,
-			"size":      len(data),
-			"prompt":    prompt,
-			"message":   "Image analysis requires multimodal LLM integration. The image has been loaded and is ready for analysis in the conversation context.",
-		})
+		imageContent = fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
+	} else {
+		imageContent = imageURL
 	}
 
-	// For URL-based images, return metadata for LLM processing
-	return toJSON(map[string]any{
-		"status":  "analyzed",
-		"url":     imageURL,
-		"prompt":  prompt,
-		"message": "Image URL is ready for multimodal analysis in the conversation context.",
+	// Try to get a vision-capable LLM client
+	client := getVisionClient()
+	if client == nil {
+		// Fallback: return metadata so the main LLM can handle it in conversation context
+		result := map[string]any{
+			"status":  "metadata_only",
+			"prompt":  prompt,
+			"message": "No vision LLM configured. Set AUXILIARY_VISION_MODEL and AUXILIARY_VISION_API_KEY environment variables to enable image analysis.",
+		}
+		if imagePath != "" {
+			result["path"] = imagePath
+		} else {
+			result["url"] = imageURL
+		}
+		return toJSON(result)
+	}
+
+	// Call the multimodal LLM with the image
+	analysis, err := callVisionLLM(client, imageContent, prompt)
+	if err != nil {
+		return toJSON(map[string]any{"error": fmt.Sprintf("Vision analysis failed: %v", err)})
+	}
+
+	result := map[string]any{
+		"status":   "analyzed",
+		"prompt":   prompt,
+		"analysis": analysis,
+	}
+	if imagePath != "" {
+		result["path"] = imagePath
+	} else {
+		result["url"] = imageURL
+	}
+	return toJSON(result)
+}
+
+// getVisionClient creates a vision-capable LLM client from environment variables.
+func getVisionClient() *llm.Client {
+	model := os.Getenv("AUXILIARY_VISION_MODEL")
+	if model == "" {
+		return nil
+	}
+
+	key := os.Getenv("AUXILIARY_VISION_API_KEY")
+	if key == "" {
+		key = os.Getenv("OPENROUTER_API_KEY")
+	}
+	if key == "" {
+		return nil
+	}
+
+	baseURL := os.Getenv("AUXILIARY_VISION_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai/api/v1"
+	}
+
+	c, err := llm.NewClientWithParams(model, baseURL, key, "vision")
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
+// callVisionLLM sends an image to a multimodal LLM for analysis.
+func callVisionLLM(client *llm.Client, imageContent, prompt string) (string, error) {
+	// Build multimodal message with image_url content part
+	// The OpenAI vision format uses content as an array of parts
+	messages := []llm.Message{
+		{
+			Role: "user",
+			Content: prompt,
+			// Embed image URL in the content for models that support it
+			ImageURLs: []string{imageContent},
+		},
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := client.CreateChatCompletion(timeoutCtx, llm.ChatRequest{
+		Messages:  messages,
+		MaxTokens: 4096,
 	})
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Content, nil
 }
 
 func handleImageGenerate(args map[string]any, ctx *ToolContext) string {

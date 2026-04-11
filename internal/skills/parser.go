@@ -124,7 +124,7 @@ func SkillMatchesPlatform(meta *SkillMeta) bool {
 		return true // No platform restriction.
 	}
 
-	currentPlatform := currentOSPlatform()
+	currentPlatform := compilePlatform()
 	for _, p := range meta.Platforms {
 		mapped := mapPlatformName(p)
 		if mapped == currentPlatform || p == "all" {
@@ -146,10 +146,4 @@ func mapPlatformName(name string) string {
 	default:
 		return strings.ToLower(name)
 	}
-}
-
-// currentOSPlatform returns the current OS platform name.
-func currentOSPlatform() string {
-	// Determined at compile time via GOOS.
-	return compilePlatform()
 }

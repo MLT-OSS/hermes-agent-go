@@ -351,8 +351,8 @@ func (r *CredentialRotator) LoadState(path string) error {
 	return nil
 }
 
-// DefaultStatePath returns the default credential state file path.
-func DefaultStatePath() string {
+// defaultStatePath returns the default credential state file path.
+func defaultStatePath() string {
 	return filepath.Join(config.HermesHome(), "credential_state.json")
 }
 
@@ -372,9 +372,9 @@ func labelFromKey(key string) string {
 	return "key-" + key[len(key)-4:]
 }
 
-// ParseRetryAfter extracts a retry duration from a "Retry-After" header value.
+// parseRetryAfter extracts a retry duration from a "Retry-After" header value.
 // Supports delta-seconds ("60") and HTTP-date formats.
-func ParseRetryAfter(value string) time.Duration {
+func parseRetryAfter(value string) time.Duration {
 	if value == "" {
 		return 30 * time.Second
 	}
@@ -401,9 +401,9 @@ func ParseRetryAfter(value string) time.Duration {
 	return 30 * time.Second
 }
 
-// StrategyFromConfig reads the credential pool strategy from the config's
+// strategyFromConfig reads the credential pool strategy from the config's
 // provider_routing map, defaulting to round_robin.
-func StrategyFromConfig(cfg *config.Config) string {
+func strategyFromConfig(cfg *config.Config) string {
 	if cfg.ProviderRouting == nil {
 		return StrategyRoundRobin
 	}

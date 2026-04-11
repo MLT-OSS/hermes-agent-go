@@ -258,14 +258,12 @@ func (app *App) Run() error {
 
 // RunSingleQuery runs a single query and exits.
 func (app *App) RunSingleQuery(query string) error {
-	result, err := app.agent.RunConversation(query, app.history)
+	_, err := app.agent.RunConversation(query, app.history)
 	if err != nil {
 		return fmt.Errorf("agent error: %w", err)
 	}
 
-	if !app.hasStreamingCallbacks() && result.FinalResponse != "" {
-		fmt.Println(result.FinalResponse)
-	} else if app.hasStreamingCallbacks() && app.streaming {
+	if app.streaming {
 		fmt.Println() // newline after streamed content
 	}
 
@@ -291,23 +289,6 @@ func (app *App) processMessage(input string) {
 	// Update history.
 	app.history = result.Messages
 
-	// Print final response if not already streamed.
-	if !app.hasStreamingCallbacks() && result.FinalResponse != "" {
-		if app.isTTY {
-			// Render in a bordered response box.
-			label := app.skin.GetBranding("response_label", " Hermes ")
-			box := app.responseStyle.Copy().
-				BorderTop(true).
-				BorderBottom(true).
-				Width(min(80, termWidth()-4))
-			fmt.Println()
-			fmt.Println(app.dimStyle.Render(label))
-			fmt.Println(box.Render(result.FinalResponse))
-		} else {
-			fmt.Println()
-			fmt.Println(result.FinalResponse)
-		}
-	}
 	fmt.Println()
 
 	// Show token usage.
@@ -317,10 +298,6 @@ func (app *App) processMessage(input string) {
 				result.InputTokens, result.OutputTokens, result.TotalTokens),
 		))
 	}
-}
-
-func (app *App) hasStreamingCallbacks() bool {
-	return true
 }
 
 func (app *App) handleSlashCommand(input string) {
@@ -602,47 +579,6 @@ func (app *App) handleSlashCommand(input string) {
 	default:
 		fmt.Printf("Command /%s is not yet implemented in the Go CLI.\n", canonical)
 	}
-}
-
-// termWidth returns terminal width or default 80.
-func termWidth() int {
-	// Simple fallback - could use golang.org/x/term for accuracy
-	return 80
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// hexToRGB converts a hex color string to RGB values for ANSI escape codes.
-func hexToRGB(hex string) string {
-	hex = strings.TrimPrefix(hex, "#")
-	if len(hex) != 6 {
-		return "180;180;180"
-	}
-	r := hexByte(hex[0:2])
-	g := hexByte(hex[2:4])
-	b := hexByte(hex[4:6])
-	return fmt.Sprintf("%d;%d;%d", r, g, b)
-}
-
-func hexByte(s string) int {
-	var val int
-	for _, c := range s {
-		val *= 16
-		switch {
-		case c >= '0' && c <= '9':
-			val += int(c - '0')
-		case c >= 'a' && c <= 'f':
-			val += int(c-'a') + 10
-		case c >= 'A' && c <= 'F':
-			val += int(c-'A') + 10
-		}
-	}
-	return val
 }
 
 // saveConversation exports the current conversation to a JSON file.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -731,19 +730,5 @@ func GatewayHelpLines() []string {
 		"`/approve` -- Approve a pending dangerous command (alias: /yes)",
 		"`/deny` -- Deny a pending dangerous command (alias: /no)",
 		"`/pair <code>` -- Pair with a pairing code",
-	}
-}
-
-// SetupFromEnv creates and configures adapters from environment variables.
-func SetupFromEnv(runner *Runner) {
-	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
-		slog.Info("Telegram bot token found, adapter will be registered")
-		// Adapter registration happens in the platform-specific package.
-	}
-	if token := os.Getenv("DISCORD_BOT_TOKEN"); token != "" {
-		slog.Info("Discord bot token found, adapter will be registered")
-	}
-	if token := os.Getenv("SLACK_BOT_TOKEN"); token != "" {
-		slog.Info("Slack bot token found, adapter will be registered")
 	}
 }

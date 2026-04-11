@@ -67,13 +67,14 @@ type anthropicMessage struct {
 }
 
 type anthropicContentBlock struct {
-	Type      string `json:"type"`                 // "text", "tool_use", "tool_result"
-	Text      string `json:"text,omitempty"`        // for "text"
-	ID        string `json:"id,omitempty"`           // for "tool_use"
-	Name      string `json:"name,omitempty"`         // for "tool_use"
-	Input     any    `json:"input,omitempty"`         // for "tool_use" (parsed JSON)
-	ToolUseID string `json:"tool_use_id,omitempty"`  // for "tool_result"
-	Content   any    `json:"content,omitempty"`       // for "tool_result" - string or blocks
+	Type         string              `json:"type"`                    // "text", "tool_use", "tool_result"
+	Text         string              `json:"text,omitempty"`          // for "text"
+	ID           string              `json:"id,omitempty"`            // for "tool_use"
+	Name         string              `json:"name,omitempty"`          // for "tool_use"
+	Input        any                 `json:"input,omitempty"`         // for "tool_use" (parsed JSON)
+	ToolUseID    string              `json:"tool_use_id,omitempty"`   // for "tool_result"
+	Content      any                 `json:"content,omitempty"`       // for "tool_result" - string or blocks
+	CacheControl *anthropicCacheCtrl `json:"cache_control,omitempty"` // prompt caching
 }
 
 type anthropicTool struct {
@@ -222,7 +223,6 @@ func (c *AnthropicClient) parseSSEStream(body io.Reader, deltaCh chan<- StreamDe
 	// Track tool calls being built
 	toolCalls := make(map[int]*ToolCall)
 	var currentBlockIndex int
-	var currentBlockType string
 
 	for {
 		n, err := reader.Read(tmp)
@@ -261,7 +261,6 @@ func (c *AnthropicClient) parseSSEStream(body io.Reader, deltaCh chan<- StreamDe
 					var evt anthropicStreamEvent
 					if json.Unmarshal(data, &evt) == nil && evt.ContentBlock != nil {
 						currentBlockIndex = evt.Index
-						currentBlockType = evt.ContentBlock.Type
 						if evt.ContentBlock.Type == "tool_use" {
 							toolCalls[currentBlockIndex] = &ToolCall{
 								ID:   evt.ContentBlock.ID,
@@ -300,7 +299,6 @@ func (c *AnthropicClient) parseSSEStream(body io.Reader, deltaCh chan<- StreamDe
 					}
 
 				case "content_block_stop":
-					_ = currentBlockType // reset
 
 				case "message_delta":
 					var evt anthropicStreamEvent
@@ -452,6 +450,10 @@ func (c *AnthropicClient) buildAnthropicRequest(req ChatRequest) anthropicReques
 	// Ensure messages alternate user/assistant (Anthropic requirement)
 	apiReq.Messages = ensureAlternating(apiReq.Messages)
 
+	// Apply prompt caching: mark the last 3 non-system messages with cache_control.
+	// This reduces input costs ~75% by caching the conversation prefix.
+	applyMessageCaching(apiReq.Messages)
+
 	// Convert tools to Anthropic format
 	for _, t := range req.Tools {
 		// Extract from OpenAI tool format
@@ -465,6 +467,45 @@ func (c *AnthropicClient) buildAnthropicRequest(req ChatRequest) anthropicReques
 	}
 
 	return apiReq
+}
+
+// applyMessageCaching applies cache_control breakpoints to the last 3 messages
+// in the conversation (Anthropic "system_and_3" strategy). System prompt caching
+// is handled separately in buildAnthropicRequest. This caches the rolling
+// conversation prefix to reduce input costs ~75%.
+func applyMessageCaching(msgs []anthropicMessage) {
+	if len(msgs) == 0 {
+		return
+	}
+
+	cacheCtrl := &anthropicCacheCtrl{Type: "ephemeral"}
+	marked := 0
+
+	// Walk backwards, mark the last 3 messages
+	for i := len(msgs) - 1; i >= 0 && marked < 3; i-- {
+		msg := &msgs[i]
+
+		switch content := msg.Content.(type) {
+		case string:
+			// Convert string content to block with cache_control
+			msg.Content = []anthropicContentBlock{
+				{
+					Type:         "text",
+					Text:         content,
+					CacheControl: cacheCtrl,
+				},
+			}
+			marked++
+
+		case []anthropicContentBlock:
+			if len(content) > 0 {
+				// Apply cache_control to the last block
+				content[len(content)-1].CacheControl = cacheCtrl
+				msg.Content = content
+				marked++
+			}
+		}
+	}
 }
 
 // ensureAlternating ensures messages alternate between user and assistant.

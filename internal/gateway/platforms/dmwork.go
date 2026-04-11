@@ -196,7 +196,7 @@ func (d *DMWorkAdapter) Send(ctx context.Context, chatID, content string, metada
 		}
 	}
 
-	parts := splitMessage(content, MaxMessageLength)
+	parts := SplitMessage(content, MaxMessageLength)
 	for _, part := range parts {
 		if err := d.sendMessage(chatID, channelType, part); err != nil {
 			return &gateway.SendResult{Success: false, Error: err.Error()}, err
@@ -862,26 +862,4 @@ func pkcs7Unpad(data []byte) ([]byte, error) {
 		}
 	}
 	return data[:len(data)-padding], nil
-}
-
-func splitMessage(content string, maxLen int) []string {
-	if len(content) <= maxLen {
-		return []string{content}
-	}
-	var parts []string
-	for len(content) > 0 {
-		end := maxLen
-		if end > len(content) {
-			end = len(content)
-		}
-		// Try to split at newline.
-		if end < len(content) {
-			if idx := strings.LastIndex(content[:end], "\n"); idx > end/2 {
-				end = idx + 1
-			}
-		}
-		parts = append(parts, content[:end])
-		content = content[end:]
-	}
-	return parts
 }

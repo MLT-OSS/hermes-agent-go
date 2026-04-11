@@ -1,87 +1,57 @@
 package agent
 
-import (
-	"regexp"
-	"strings"
-)
+import "regexp"
 
-// redactionPatterns are compiled regexps for detecting secrets.
-var redactionPatterns []*regexp.Regexp
+// secretPatterns holds compiled regexes for known secret formats.
+// All patterns are compiled once at package init time.
+var secretPatterns []*regexp.Regexp
 
 func init() {
-	patterns := []string{
-		// OpenAI API keys
-		`sk-[A-Za-z0-9_-]{20,}`,
-		// OpenAI project keys
-		`sk-proj-[A-Za-z0-9_-]{20,}`,
-		// Anthropic API keys
-		`sk-ant-[A-Za-z0-9_-]{20,}`,
-		// GitHub personal access tokens
-		`ghp_[A-Za-z0-9]{36,}`,
-		// GitHub OAuth tokens
-		`gho_[A-Za-z0-9]{36,}`,
-		// GitHub user-to-server tokens
-		`ghu_[A-Za-z0-9]{36,}`,
-		// GitHub server-to-server tokens
-		`ghs_[A-Za-z0-9]{36,}`,
-		// GitHub refresh tokens
-		`ghr_[A-Za-z0-9]{36,}`,
-		// GitHub fine-grained tokens
-		`github_pat_[A-Za-z0-9_]{22,}`,
-		// Slack tokens
-		`xoxb-[A-Za-z0-9-]+`,
-		`xoxp-[A-Za-z0-9-]+`,
-		`xapp-[A-Za-z0-9-]+`,
-		`xoxa-[A-Za-z0-9-]+`,
-		// Bearer tokens in headers
-		`(?i)Bearer\s+[A-Za-z0-9_.~+/=-]{20,}`,
-		// x-api-key headers
-		`(?i)x-api-key:\s*[A-Za-z0-9_.~+/=-]{10,}`,
-		// Authorization headers
-		`(?i)Authorization:\s*[A-Za-z0-9_.~+/ =-]{10,}`,
-		// AWS access key IDs
+	rawPatterns := []string{
+		// API key prefixes
+		`sk-[a-zA-Z0-9]{20,}`,
+		`sk-ant-[a-zA-Z0-9-]{20,}`,
+		`ghp_[a-zA-Z0-9]{36,}`,
+		`gho_[a-zA-Z0-9]{36,}`,
+		`ghu_[a-zA-Z0-9]{36,}`,
+		`ghs_[a-zA-Z0-9]{36,}`,
 		`AKIA[A-Z0-9]{16}`,
-		// Generic long hex/base64 secrets that look like API keys
-		// (40+ char hex strings, common in many providers)
-		`(?i)(?:api[_-]?key|secret|token|password)\s*[:=]\s*["']?[A-Za-z0-9_.~+/=-]{20,}["']?`,
+		`xox[bpors]-[a-zA-Z0-9-]+`,
+		`AIza[a-zA-Z0-9_\-]{35}`,
+		`ya29\.[a-zA-Z0-9_\-]+`,
+		`fal_[a-zA-Z0-9]{32,}`,
+		`hf_[a-zA-Z0-9]{34,}`,
+		`gsk_[a-zA-Z0-9]{20,}`,
+		`pplx-[a-zA-Z0-9]{40,}`,
+		`r8_[a-zA-Z0-9]{37,}`,
+		`sq0[a-z]{3}-[a-zA-Z0-9\-]{22,}`,
+		`sk_live_[a-zA-Z0-9]{24,}`,
+		`rk_live_[a-zA-Z0-9]{24,}`,
+		`pk_live_[a-zA-Z0-9]{24,}`,
+		// Structural patterns
+		`(?i)Authorization:\s*Bearer\s+[a-zA-Z0-9._~+/=\-]{20,}`,
+		`(?i)(?:API_KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*["']?[^\s"']{8,}`,
+		`-----BEGIN\s(?:RSA\s)?PRIVATE\sKEY-----[\s\S]*?-----END`,
+		`\d{5,}:[a-zA-Z0-9_\-]{20,}`,
 	}
 
-	for _, p := range patterns {
-		redactionPatterns = append(redactionPatterns, regexp.MustCompile(p))
+	secretPatterns = make([]*regexp.Regexp, len(rawPatterns))
+	for i, p := range rawPatterns {
+		secretPatterns[i] = regexp.MustCompile(p)
 	}
 }
 
-// RedactSecrets removes API keys and tokens from text, replacing them
-// with [REDACTED]. This is used before logging or displaying tool results
-// to prevent accidental credential leakage.
+// RedactSecrets replaces known secret patterns in text with [REDACTED].
 func RedactSecrets(text string) string {
-	if text == "" {
-		return text
+	for _, re := range secretPatterns {
+		text = re.ReplaceAllString(text, "[REDACTED]")
 	}
-
-	result := text
-	for _, re := range redactionPatterns {
-		result = re.ReplaceAllStringFunc(result, func(match string) string {
-			// For header-style matches, preserve the header name.
-			if idx := strings.IndexByte(match, ':'); idx >= 0 {
-				return match[:idx+1] + " [REDACTED]"
-			}
-			if idx := strings.IndexByte(match, '='); idx >= 0 {
-				return match[:idx+1] + " [REDACTED]"
-			}
-			if strings.HasPrefix(strings.ToLower(match), "bearer") {
-				return "Bearer [REDACTED]"
-			}
-			return "[REDACTED]"
-		})
-	}
-
-	return result
+	return text
 }
 
-// ContainsSecret returns true if the text appears to contain a secret.
+// ContainsSecret returns true if text contains any known secret pattern.
 func ContainsSecret(text string) bool {
-	for _, re := range redactionPatterns {
+	for _, re := range secretPatterns {
 		if re.MatchString(text) {
 			return true
 		}

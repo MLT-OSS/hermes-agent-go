@@ -337,13 +337,6 @@ func TestGetModelMeta_CachedResult(t *testing.T) {
 	}
 }
 
-func TestProbeContextLength(t *testing.T) {
-	result := ProbeContextLength(nil, "any-model")
-	if result != 128000 {
-		t.Errorf("ProbeContextLength: got %d, want 128000", result)
-	}
-}
-
 func TestKnownProviderPrefixes_NoDuplicates(t *testing.T) {
 	seen := make(map[string]bool)
 	for _, p := range knownProviderPrefixes {

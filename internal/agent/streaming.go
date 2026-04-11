@@ -14,13 +14,6 @@ func (a *AIAgent) fireReasoning(text string) {
 	}
 }
 
-// fireToolGenStarted notifies that tool args are being generated.
-func (a *AIAgent) fireToolGenStarted(toolName string) {
-	if a.callbacks != nil && a.callbacks.OnToolGenStarted != nil {
-		a.callbacks.OnToolGenStarted(toolName)
-	}
-}
-
 // fireToolProgress fires the tool progress callback.
 func (a *AIAgent) fireToolProgress(toolName, argsPreview string) {
 	if a.callbacks != nil && a.callbacks.OnToolProgress != nil {

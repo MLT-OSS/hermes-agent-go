@@ -176,10 +176,3 @@ func moaCallAgent(cfg *config.Config, systemPrompt, userMessage string) (string,
 
 	return resp.Content, nil
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -28,15 +28,6 @@ type BrowserSession struct {
 	pageTitle  string
 }
 
-// activeBrowserSession is the singleton browser session.
-// Browser tools share a single session to maintain state.
-var (
-	activeBrowserSession *BrowserSession
-	browserSessionMu     sync.Mutex
-)
-
-// getOrCreateBrowserSession returns the active browser session,
-// creating one if needed.
 // newBrowserbaseSession creates a new BrowserSession for the Browserbase API.
 func newBrowserbaseSession() (*BrowserSession, error) {
 	apiKey := os.Getenv("BROWSERBASE_API_KEY")
@@ -60,24 +51,6 @@ func newBrowserbaseSession() (*BrowserSession, error) {
 	}
 
 	return session, nil
-}
-
-// getOrCreateBrowserSession returns the active browser session (legacy, used by BrowserbaseBackend).
-func getOrCreateBrowserSession() (*BrowserSession, error) {
-	browserSessionMu.Lock()
-	defer browserSessionMu.Unlock()
-
-	if activeBrowserSession != nil {
-		return activeBrowserSession, nil
-	}
-
-	session, err := newBrowserbaseSession()
-	if err != nil {
-		return nil, err
-	}
-
-	activeBrowserSession = session
-	return activeBrowserSession, nil
 }
 
 // createSession creates a new session via the Browserbase API.
@@ -436,17 +409,6 @@ func (bs *BrowserSession) executeScript(script string) (map[string]any, error) {
 		"success": true,
 		"result":  result,
 	}, nil
-}
-
-// closeBrowserSession closes and cleans up the active browser session.
-func closeBrowserSession() {
-	browserSessionMu.Lock()
-	defer browserSessionMu.Unlock()
-
-	if activeBrowserSession != nil {
-		activeBrowserSession.close()
-		activeBrowserSession = nil
-	}
 }
 
 // close terminates the Browserbase session.
