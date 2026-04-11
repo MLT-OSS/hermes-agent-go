@@ -1,10 +1,11 @@
 package tools
 
 import (
-	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hermes-agent/hermes-agent-go/internal/config"
 )
@@ -12,12 +13,13 @@ import (
 // SkillSyncResult describes the outcome of syncing a single skill.
 type SkillSyncResult struct {
 	Name    string `json:"name"`
-	Action  string `json:"action"` // "installed", "updated", "unchanged", "error"
+	Action  string `json:"action"` // "installed", "updated", "unchanged", "skipped", "error"
 	Message string `json:"message,omitempty"`
 }
 
 // SyncBuiltinSkills checks bundled skills against the installed skills directory
-// and copies any new or updated skills.
+// and copies any new or updated skills. It loads the manifest to detect
+// user-modified files and never overwrites them.
 func SyncBuiltinSkills(bundledDir, installedDir string) ([]SkillSyncResult, error) {
 	if bundledDir == "" {
 		// Default bundled skills location (relative to binary or project root).
@@ -33,10 +35,18 @@ func SyncBuiltinSkills(bundledDir, installedDir string) ([]SkillSyncResult, erro
 
 	os.MkdirAll(installedDir, 0755) //nolint:errcheck
 
+	// Load the manifest for user-edit detection.
+	manifestPath := filepath.Join(installedDir, ".manifest.json")
+	manifest, err := LoadManifest(manifestPath)
+	if err != nil {
+		slog.Warn("could not load manifest, starting fresh", "error", err)
+		manifest = &SkillManifest{Version: 1, Skills: make(map[string]ManifestEntry)}
+	}
+
 	var results []SkillSyncResult
 
 	// Walk bundled skills.
-	err := filepath.WalkDir(bundledDir, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(bundledDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -67,19 +77,32 @@ func SyncBuiltinSkills(bundledDir, installedDir string) ([]SkillSyncResult, erro
 			return nil
 		}
 
-		// Check if installed version exists and differs.
-		installedData, err := os.ReadFile(destPath)
-		if err == nil {
-			// File exists — compare hashes.
-			bundledHash := sha256.Sum256(bundledData)
-			installedHash := sha256.Sum256(installedData)
-			if bundledHash == installedHash {
+		bundledHash := HashFileContent(bundledData)
+
+		// Check if installed version exists.
+		installedData, readErr := os.ReadFile(destPath)
+		if readErr == nil {
+			// File exists — check for user modifications.
+			if IsUserModified(manifest, skillName, destPath) {
+				slog.Info("skipping user-modified skill", "skill", skillName)
+				results = append(results, SkillSyncResult{
+					Name:    skillName,
+					Action:  "skipped",
+					Message: "user-modified",
+				})
+				return nil
+			}
+
+			// Compare hashes to see if an update is needed.
+			installedHash := HashFileContent(installedData)
+			if installedHash == bundledHash {
 				results = append(results, SkillSyncResult{
 					Name:   skillName,
 					Action: "unchanged",
 				})
 				return nil
 			}
+
 			// Different — update.
 			os.MkdirAll(filepath.Dir(destPath), 0755) //nolint:errcheck
 			if err := os.WriteFile(destPath, bundledData, 0644); err != nil {
@@ -90,6 +113,14 @@ func SyncBuiltinSkills(bundledDir, installedDir string) ([]SkillSyncResult, erro
 				})
 				return nil
 			}
+
+			// Update manifest entry.
+			manifest.Skills[skillName] = ManifestEntry{
+				Hash:        bundledHash,
+				Source:      "builtin",
+				InstalledAt: time.Now(),
+			}
+
 			results = append(results, SkillSyncResult{
 				Name:   skillName,
 				Action: "updated",
@@ -107,12 +138,25 @@ func SyncBuiltinSkills(bundledDir, installedDir string) ([]SkillSyncResult, erro
 			})
 			return nil
 		}
+
+		// Record in manifest.
+		manifest.Skills[skillName] = ManifestEntry{
+			Hash:        bundledHash,
+			Source:      "builtin",
+			InstalledAt: time.Now(),
+		}
+
 		results = append(results, SkillSyncResult{
 			Name:   skillName,
 			Action: "installed",
 		})
 		return nil
 	})
+
+	// Persist the updated manifest.
+	if saveErr := SaveManifest(manifestPath, manifest); saveErr != nil {
+		slog.Error("failed to save manifest", "error", saveErr)
+	}
 
 	return results, err
 }
