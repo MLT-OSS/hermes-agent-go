@@ -80,7 +80,8 @@ type DelegationConfig struct {
 
 // AuxiliaryConfig controls auxiliary LLM clients.
 type AuxiliaryConfig struct {
-	WebExtract map[string]any `yaml:"web_extract"`
+	WebExtract   map[string]any `yaml:"web_extract"`
+	SummaryModel string         `yaml:"summary_model"`
 }
 
 // PluginsConfig controls plugin discovery and loading.
@@ -206,6 +207,9 @@ func mergeConfig(dst, src *Config) {
 	}
 	if len(src.Toolsets.Disabled) > 0 {
 		dst.Toolsets.Disabled = src.Toolsets.Disabled
+	}
+	if src.Auxiliary.SummaryModel != "" {
+		dst.Auxiliary.SummaryModel = src.Auxiliary.SummaryModel
 	}
 	if src.ProviderRouting != nil {
 		dst.ProviderRouting = src.ProviderRouting
