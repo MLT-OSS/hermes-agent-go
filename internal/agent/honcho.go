@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -21,6 +22,10 @@ const (
 //
 // Compile-time interface check.
 var _ MemoryProvider = (*HonchoProvider)(nil)
+
+// Compile-time lifecycle interface checks.
+var _ PrefetchProvider = (*HonchoProvider)(nil)
+var _ TurnSyncProvider = (*HonchoProvider)(nil)
 
 type HonchoProvider struct {
 	appID   string
@@ -205,6 +210,32 @@ func (h *HonchoProvider) SaveUserProfile(content string) error {
 		return fmt.Errorf("content is required")
 	}
 	return h.SaveMemory(honchoProfileKey, content)
+}
+
+// Prefetch warms the Honcho cache by issuing a read for the user's
+// memory collection. The query parameter is logged but currently unused
+// by the Honcho API (all documents are fetched).
+func (h *HonchoProvider) Prefetch(query string) error {
+	slog.Debug("Honcho prefetch", "query_len", len(query))
+	_, err := h.ReadMemory()
+	if err != nil {
+		return fmt.Errorf("honcho prefetch: %w", err)
+	}
+	return nil
+}
+
+// SyncTurn persists a conversation turn as a document in the Honcho
+// memory collection so it can be retrieved in future sessions.
+func (h *HonchoProvider) SyncTurn(userMsg, assistantMsg string) error {
+	if userMsg == "" && assistantMsg == "" {
+		return nil
+	}
+
+	content := fmt.Sprintf("User: %s\nAssistant: %s", userMsg, assistantMsg)
+	key := fmt.Sprintf("turn_%d", time.Now().UnixMilli())
+
+	slog.Debug("Honcho sync turn", "key", key)
+	return h.SaveMemory(key, content)
 }
 
 // findDocumentByKey searches for a document with the given key in its metadata.

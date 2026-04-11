@@ -2,12 +2,14 @@ package agent
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/hermes-agent/hermes-agent-go/internal/config"
+	"github.com/hermes-agent/hermes-agent-go/internal/llm"
 )
 
 // MemoryProvider is the interface for memory storage backends.
@@ -31,11 +33,49 @@ type MemoryProvider interface {
 	SaveUserProfile(content string) error
 }
 
+// --- Optional lifecycle interfaces ---
+// Providers may implement any subset of these to hook into the agent lifecycle.
+// The MemoryManager checks at runtime via interface assertion.
+
+// SystemPromptProvider allows a memory provider to contribute a block
+// of text that is injected into the system prompt.
+type SystemPromptProvider interface {
+	SystemPromptBlock() string
+}
+
+// PrefetchProvider allows a memory provider to prefetch or warm up
+// relevant memories before a conversation turn begins.
+type PrefetchProvider interface {
+	Prefetch(query string) error
+}
+
+// TurnSyncProvider allows a memory provider to persist a completed
+// conversation turn (user message + assistant reply).
+type TurnSyncProvider interface {
+	SyncTurn(userMsg, assistantMsg string) error
+}
+
+// PreCompressProvider allows a memory provider to extract information
+// from messages that are about to be compressed (and therefore lost).
+type PreCompressProvider interface {
+	OnPreCompress(messages []llm.Message) string
+}
+
+// ShutdownProvider allows a memory provider to perform cleanup when
+// the agent is shutting down.
+type ShutdownProvider interface {
+	Shutdown() error
+}
+
 // BuiltinMemoryProvider implements MemoryProvider using MEMORY.md and USER.md
 // files in the Hermes home directory.
 //
 // Compile-time interface check.
 var _ MemoryProvider = (*BuiltinMemoryProvider)(nil)
+
+// Compile-time lifecycle interface checks.
+var _ SystemPromptProvider = (*BuiltinMemoryProvider)(nil)
+var _ ShutdownProvider = (*BuiltinMemoryProvider)(nil)
 
 type BuiltinMemoryProvider struct {
 	homeDir string
@@ -155,6 +195,33 @@ func (p *BuiltinMemoryProvider) SaveUserProfile(content string) error {
 	return nil
 }
 
+// SystemPromptBlock returns the combined contents of MEMORY.md and USER.md
+// for injection into the system prompt.
+func (p *BuiltinMemoryProvider) SystemPromptBlock() string {
+	var parts []string
+
+	memory, err := p.ReadMemory()
+	if err != nil {
+		slog.Warn("Failed to read memory for system prompt", "error", err)
+	} else if memory != "" {
+		parts = append(parts, "## Agent Memory\n"+memory)
+	}
+
+	profile, err := p.ReadUserProfile()
+	if err != nil {
+		slog.Warn("Failed to read user profile for system prompt", "error", err)
+	} else if profile != "" {
+		parts = append(parts, "## User Profile\n"+profile)
+	}
+
+	return strings.Join(parts, "\n\n")
+}
+
+// Shutdown is a no-op for the built-in file-based provider.
+func (p *BuiltinMemoryProvider) Shutdown() error {
+	return nil
+}
+
 // MemoryManager provides a unified interface to memory operations,
 // delegating to the configured MemoryProvider.
 type MemoryManager struct {
@@ -217,4 +284,56 @@ func (m *MemoryManager) ReadUserProfile() (string, error) {
 // SaveUserProfile delegates to the provider.
 func (m *MemoryManager) SaveUserProfile(content string) error {
 	return m.provider.SaveUserProfile(content)
+}
+
+// --- Lifecycle hook dispatchers ---
+
+// GetSystemPromptBlock returns the provider's system prompt contribution,
+// or an empty string if the provider does not implement SystemPromptProvider.
+func (m *MemoryManager) GetSystemPromptBlock() string {
+	if p, ok := m.provider.(SystemPromptProvider); ok {
+		return p.SystemPromptBlock()
+	}
+	return ""
+}
+
+// RunPrefetch asks the provider to prefetch memories relevant to the given
+// query. It is a no-op if the provider does not implement PrefetchProvider.
+func (m *MemoryManager) RunPrefetch(query string) error {
+	if p, ok := m.provider.(PrefetchProvider); ok {
+		slog.Debug("Running memory prefetch", "query_len", len(query))
+		return p.Prefetch(query)
+	}
+	return nil
+}
+
+// RunSyncTurn asks the provider to persist a completed conversation turn.
+// It is a no-op if the provider does not implement TurnSyncProvider.
+func (m *MemoryManager) RunSyncTurn(userMsg, assistantMsg string) error {
+	if p, ok := m.provider.(TurnSyncProvider); ok {
+		slog.Debug("Syncing conversation turn")
+		return p.SyncTurn(userMsg, assistantMsg)
+	}
+	return nil
+}
+
+// RunOnPreCompress notifies the provider that messages are about to be
+// compressed, giving it a chance to extract important information.
+// Returns the provider's summary string, or empty if not implemented.
+func (m *MemoryManager) RunOnPreCompress(messages []llm.Message) string {
+	if p, ok := m.provider.(PreCompressProvider); ok {
+		slog.Debug("Running pre-compress hook", "message_count", len(messages))
+		return p.OnPreCompress(messages)
+	}
+	return ""
+}
+
+// RunShutdown asks the provider to clean up resources. It is a no-op if
+// the provider does not implement ShutdownProvider.
+func (m *MemoryManager) RunShutdown() error {
+	if p, ok := m.provider.(ShutdownProvider); ok {
+		slog.Debug("Running memory provider shutdown")
+		return p.Shutdown()
+	}
+	return nil
 }
