@@ -232,3 +232,74 @@ func TestRetryBudget(t *testing.T) {
 		t.Error("should retry after reset")
 	}
 }
+
+// --- New error reasons ---
+
+func TestClassifyError_ThinkingSignature(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"status 400 thinking_signature", errors.New("thinking_signature limit"), 400},
+		{"message only", errors.New("extended thinking failure"), 0},
+		{"thinking budget", errors.New("thinking budget exceeded"), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := ClassifyError(tt.err, tt.status, "anthropic", "claude-3")
+			if r.Reason != ReasonThinkingSignature {
+				t.Errorf("reason = %v, want %v", r.Reason, ReasonThinkingSignature)
+			}
+			if r.Retryable {
+				t.Error("expected not retryable")
+			}
+			if !r.ShouldFallback {
+				t.Error("expected ShouldFallback")
+			}
+		})
+	}
+}
+
+func TestClassifyError_LongContextTier(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"status 400 long_context_tier", errors.New("long_context_tier exceeded"), 400},
+		{"message only", errors.New("context tier limit reached"), 0},
+		{"long context tier", errors.New("long context tier reached"), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := ClassifyError(tt.err, tt.status, "anthropic", "claude-3")
+			if r.Reason != ReasonLongContextTier {
+				t.Errorf("reason = %v, want %v", r.Reason, ReasonLongContextTier)
+			}
+			if r.Retryable {
+				t.Error("expected not retryable")
+			}
+			if !r.ShouldFallback {
+				t.Error("expected ShouldFallback")
+			}
+		})
+	}
+}
+
+func TestFailoverReason_String_NewReasons(t *testing.T) {
+	tests := []struct {
+		reason FailoverReason
+		want   string
+	}{
+		{ReasonThinkingSignature, "thinking_signature"},
+		{ReasonLongContextTier, "long_context_tier"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.reason.String(); got != tt.want {
+				t.Errorf("String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

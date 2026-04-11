@@ -23,6 +23,8 @@ const (
 	ReasonContextOverflow                           // context too large
 	ReasonModelNotFound                             // 404 / invalid model
 	ReasonFormatError                               // 400 bad request
+	ReasonThinkingSignature                         // thinking-signature budget exceeded
+	ReasonLongContextTier                           // long-context tier limit
 )
 
 // String returns the human-readable reason name.
@@ -48,6 +50,10 @@ func (r FailoverReason) String() string {
 		return "model_not_found"
 	case ReasonFormatError:
 		return "format_error"
+	case ReasonThinkingSignature:
+		return "thinking_signature"
+	case ReasonLongContextTier:
+		return "long_context_tier"
 	default:
 		return "unknown"
 	}
@@ -133,6 +139,20 @@ var modelNotFoundPatterns = []string{
 	"not available",
 }
 
+var thinkingSignaturePatterns = []string{
+	"thinking_signature",
+	"thinking budget exceeded",
+	"thinking tokens exceeded",
+	"extended thinking",
+}
+
+var longContextTierPatterns = []string{
+	"long_context_tier",
+	"long context tier",
+	"context tier limit",
+	"tier limit exceeded",
+}
+
 // ClassifyError classifies an API error based on status code and message.
 func ClassifyError(err error, statusCode int, provider, model string) *ClassifiedError {
 	if err == nil {
@@ -201,6 +221,16 @@ func classifyByStatus(r *ClassifiedError, status int, msg string) {
 			r.Reason = ReasonRateLimit
 			r.Retryable = true
 		}
+		if matchesAny(msg, thinkingSignaturePatterns) {
+			r.Reason = ReasonThinkingSignature
+			r.ShouldFallback = true
+			r.Retryable = false
+		}
+		if matchesAny(msg, longContextTierPatterns) {
+			r.Reason = ReasonLongContextTier
+			r.ShouldFallback = true
+			r.Retryable = false
+		}
 
 	case status == 404:
 		r.Reason = ReasonModelNotFound
@@ -250,6 +280,14 @@ func classifyByMessage(r *ClassifiedError, msg string) {
 		r.Retryable = true
 	case matchesAny(msg, modelNotFoundPatterns):
 		r.Reason = ReasonModelNotFound
+		r.ShouldFallback = true
+		r.Retryable = false
+	case matchesAny(msg, thinkingSignaturePatterns):
+		r.Reason = ReasonThinkingSignature
+		r.ShouldFallback = true
+		r.Retryable = false
+	case matchesAny(msg, longContextTierPatterns):
+		r.Reason = ReasonLongContextTier
 		r.ShouldFallback = true
 		r.Retryable = false
 	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded"):
