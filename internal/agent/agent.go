@@ -68,6 +68,13 @@ type AIAgent struct {
 	apiCallCount      int
 	lastActivity      time.Time
 
+	// Compression cooldown
+	lastCompressionFailure time.Time
+
+	// summaryCompleter overrides the LLM client used for context
+	// compression summaries.  Nil means use the main client.
+	summaryCompleter chatCompleter
+
 	// Token tracking
 	totalInputTokens  int
 	totalOutputTokens int
