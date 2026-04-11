@@ -54,8 +54,9 @@ type AIAgent struct {
 	smartRouter *SmartRouter
 
 	// Runtime state
-	client        *llm.Client
-	sessionDB     *state.SessionDB
+	client          *llm.Client
+	auxiliaryClient *AuxiliaryClient
+	sessionDB       *state.SessionDB
 	budget        *IterationBudget
 	callbacks     *StreamCallbacks
 	toolDefs      []openai.Tool
@@ -136,6 +137,12 @@ func New(opts ...AgentOption) (*AIAgent, error) {
 	a.model = a.client.Model()
 	a.provider = a.client.Provider()
 	a.baseURL = a.client.BaseURL()
+
+	// Initialize auxiliary clients
+	a.auxiliaryClient = NewAuxiliaryClient(cfg)
+	if a.auxiliaryClient != nil && a.auxiliaryClient.SummaryClient() != nil {
+		a.summaryCompleter = a.auxiliaryClient.SummaryClient()
+	}
 
 	// Open session DB
 	if a.persistSession {
